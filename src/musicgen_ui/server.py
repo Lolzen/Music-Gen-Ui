@@ -5,35 +5,38 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import Settings
-from .engine import create_engine
+from .config import BACKENDS, DEVICES, ENGINES, QUANTIZATIONS, Settings
 from .jobs import JobQueue
 from .models import YUE2_DEFAULTS, SongSpec
 from .plugins import PluginManager
 from .prompting import KNOWN_SECTIONS
+from .runtime import Busy, EngineManager
+from .system import gpu_status
 
 WEB_DIR = Path(__file__).parent / "web"
 log = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
-    settings = settings or Settings.from_env()
+    settings = settings or Settings.load()
     plugins = PluginManager()
     plugins.load_dirs(settings.plugin_dirs)
-    queue = JobQueue(engine or create_engine(settings), settings.library_dir, plugins)
+    manager = EngineManager(settings, engine)
+    queue = JobQueue(manager, settings.library_dir, plugins)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         queue.start()
         yield
         queue.stop()
+        manager.shutdown()
 
-    app = FastAPI(title="Music-Gen-UI", version="0.1.0", lifespan=lifespan)
-    app.state.queue, app.state.settings, app.state.plugins = queue, settings, plugins
+    app = FastAPI(title="Music-Gen-UI", version="0.2.0", lifespan=lifespan)
+    app.state.queue, app.state.manager, app.state.plugins = queue, manager, plugins
 
     def job_or_404(job_id: str):
         job = queue.get(job_id)
@@ -41,25 +44,57 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
             raise HTTPException(404, "Job nicht gefunden")
         return job
 
+    def guarded(action):
+        try:
+            return action()
+        except Busy as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    # -- info / engine ---------------------------------------------------------
     @app.get("/api/info")
     def info():
-        return {"engine": queue.engine.info(), "defaults": YUE2_DEFAULTS,
+        return {"engine": manager.status(), "defaults": YUE2_DEFAULTS,
                 "sections": KNOWN_SECTIONS, "presets": plugins.presets,
                 "plugins": plugins.summary(), "spec_schema": SongSpec.model_json_schema()}
 
+    @app.get("/api/status")
+    def status():
+        running = queue.running
+        return {"engine": manager.status(), "gpu": gpu_status(),
+                "running_job": running.id if running else None}
+
+    @app.get("/api/settings")
+    def get_settings():
+        return {"values": settings.editable(),
+                "choices": {"engine": ENGINES, "quantization": QUANTIZATIONS,
+                            "backend": BACKENDS, "device": DEVICES,
+                            "vae": ["m-a-p/YuE2-Vae", "m-a-p/YuE2-Vae-legacy"]}}
+
+    @app.put("/api/settings")
+    def put_settings(values: dict = Body(...)):
+        guarded(lambda: manager.configure(values))
+        return {"values": settings.editable(), "engine": manager.status()}
+
+    @app.post("/api/engine/load")
+    def load():
+        guarded(manager.load_async)
+        return manager.status()
+
+    @app.post("/api/engine/unload")
+    def unload():
+        guarded(manager.unload)
+        return manager.status()
+
+    # -- generation --------------------------------------------------------------
     @app.post("/api/preview")
     def preview(spec: SongSpec):
-        try:
-            return queue.preview(spec)
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
+        return guarded(lambda: queue.preview(spec))
 
     @app.post("/api/jobs")
     def submit(spec: SongSpec):
-        try:
-            return [job.public() for job in queue.submit(spec)]
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
+        return guarded(lambda: [job.public() for job in queue.submit(spec)])
 
     @app.get("/api/jobs")
     def jobs():

@@ -10,10 +10,21 @@
   <script src="app.js" type="module"></script>
 </head>
 <body>
-<header>
+<header class="topbar">
   <h1>Music-Gen-UI</h1>
-  <span id="engine-info" class="muted">…</span>
+  <div id="engine-status" class="status">
+    <span class="dot"></span><span id="engine-label">…</span>
+  </div>
+  <div id="gpu" class="gpu" hidden>
+    <span id="gpu-label"></span>
+    <div class="bar small"><div id="gpu-bar"></div></div>
+  </div>
+  <div class="spacer"></div>
+  <button type="button" id="engine-load" class="ghost" hidden>Modell laden</button>
+  <button type="button" id="engine-unload" class="ghost" hidden>Entladen</button>
+  <button type="button" id="open-settings" class="ghost" title="Einstellungen">⚙ Einstellungen</button>
 </header>
+<div id="banner" class="banner" hidden></div>
 
 <main>
   <form id="song-form" class="panel" autocomplete="off">
@@ -106,6 +117,59 @@
     <div id="jobs"></div>
   </section>
 </main>
+
+<dialog id="settings-dialog">
+  <form id="settings-form" method="dialog">
+    <h2>Einstellungen</h2>
+    <div class="grid">
+      <label>Engine
+        <select name="engine">
+          <option value="auto">Automatisch (YuE2 falls installiert)</option>
+          <option value="yue2">YuE2</option>
+          <option value="mock">Mock (Test, ohne Modell)</option>
+        </select>
+      </label>
+      <label>VRAM-Modus
+        <select name="vram_mode">
+          <option value="standard">Standard (24 GB, schnellste Qualität)</option>
+          <option value="fp8">FP8 (weniger VRAM, ab RTX 40xx)</option>
+          <option value="low">Low-VRAM (langsam, lagert aus)</option>
+          <option value="fp8-low">FP8 + Low-VRAM (minimal)</option>
+        </select>
+      </label>
+      <label>Backend
+        <select name="backend">
+          <option value="torch">torch (Standard)</option>
+          <option value="torch-eager">torch-eager (ohne CUDA-Graphs, Fehlersuche)</option>
+          <option value="vllm">vllm (schneller, Extra „fast“ nötig)</option>
+        </select>
+      </label>
+      <label>Gerät
+        <select name="device">
+          <option value="auto">auto</option><option value="cuda">cuda</option><option value="cpu">cpu</option>
+        </select>
+      </label>
+      <label>Speicherbudget (GiB) <input name="memory_budget_gib" type="number" min="4" max="1024" step="1"></label>
+    </div>
+    <details>
+      <summary>Modelle</summary>
+      <div class="grid">
+        <label>Modell (Hugging Face ID oder lokaler Ordner) <input name="model"></label>
+        <label>VAE
+          <input name="vae" list="vae-choices">
+          <datalist id="vae-choices"></datalist>
+        </label>
+      </div>
+      <p class="hint">YuE2-Vae ist der Standard zum Hören, YuE2-Vae-legacy der Decoder der offiziellen Benchmarks.</p>
+    </details>
+    <p class="hint">Änderungen entladen das aktuelle Modell. Beim nächsten Song (oder mit „Modell laden“) wird es neu geladen.</p>
+    <p id="settings-error" class="error"></p>
+    <div class="row">
+      <button value="cancel" class="ghost">Abbrechen</button>
+      <button id="settings-save" value="save" class="primary">Speichern</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="score-dialog">
   <div id="score-render"></div>

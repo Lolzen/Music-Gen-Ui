@@ -7,7 +7,8 @@ from typing import Callable, Protocol
 
 from ..prompting import CompiledRequest
 
-# stage name, completed, total (total may be 0 when unknown)
+# stage name, completed, total. total == 0 means "unknown" (e.g. token count while sampling,
+# download bytes), the UI then shows the raw count instead of a percentage.
 ProgressFn = Callable[[str, int, int], None]
 CancelledFn = Callable[[], bool]
 
@@ -28,6 +29,15 @@ class EngineResult:
 
 class Engine(Protocol):
     name: str
+
+    @property
+    def loaded(self) -> bool: ...
+
+    def load(self, progress: ProgressFn) -> None:
+        """Download/verify/load the model. Must be idempotent."""
+
+    def unload(self) -> None:
+        """Release the model and free (V)RAM."""
 
     def generate(self, request: CompiledRequest, out_dir: Path, *,
                  progress: ProgressFn, cancelled: CancelledFn) -> EngineResult: ...

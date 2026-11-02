@@ -16,33 +16,43 @@ _SCALE = [0, 2, 4, 5, 7, 9, 11, 12]
 
 class MockEngine:
     name = "mock"
+    loaded = True
 
-    def __init__(self, delay: float = 0.4):
+    def __init__(self, delay: float = 2.0):
         self.delay = delay
 
     def info(self) -> dict:
         return {"engine": self.name, "note": "Platzhalter-Audio, kein Modell geladen"}
 
-    def _stage(self, name: str, steps: int, progress: ProgressFn, cancelled: CancelledFn) -> None:
+    def load(self, progress: ProgressFn) -> None:
+        pass
+
+    def unload(self) -> None:
+        pass
+
+    def _stage(self, name: str, steps: int, share: float, progress: ProgressFn, cancelled: CancelledFn,
+               *, unknown_total: bool = False, step_size: int = 1) -> None:
         for i in range(steps):
             if cancelled():
                 raise Cancelled()
             if self.delay:
-                time.sleep(self.delay / steps)
-            progress(name, i + 1, steps)
+                time.sleep(self.delay * share / steps)
+            progress(name, (i + 1) * step_size, 0 if unknown_total else steps)
 
     def generate(self, request: CompiledRequest, out_dir: Path, *,
                  progress: ProgressFn, cancelled: CancelledFn) -> EngineResult:
         rng = np.random.default_rng(request.seed)
         lines = [l for s in request.sections for l in s.lines if l.strip()]
         n_notes = int(np.clip(len(lines) * 4, 16, 120))
-        if request.cot != "off":
-            self._stage("score", 8, progress, cancelled)
-        self._stage("audio", 8, progress, cancelled)
-        self._stage("nar", 4, progress, cancelled)
-        self._stage("vae", 2, progress, cancelled)
-
         note_len = 0.25
+        if request.cot != "off":
+            self._stage("score", 8, 0.2, progress, cancelled, unknown_total=True, step_size=40)
+        # 25 audio tokens per second of music, like YuE2
+        self._stage("audio", 10, 0.5, progress, cancelled, unknown_total=True,
+                    step_size=max(1, int(n_notes * note_len * 25 / 10)))
+        self._stage("nar", 4, 0.2, progress, cancelled)
+        self._stage("vae", 2, 0.1, progress, cancelled)
+
         degrees = np.cumsum(rng.integers(-2, 3, n_notes)).clip(-3, 10)
         t = np.arange(int(SR * note_len)) / SR
         env = np.minimum(1, t * 40) * np.exp(-3 * t)

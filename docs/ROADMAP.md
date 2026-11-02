@@ -11,10 +11,13 @@
 - [x] Mock-Engine + Tests
 
 ## Phase 1 – Echte Generierung stabil
-- [ ] Erster Lauf mit `--engine yue2` auf der RTX 4090, Adapter anpassen; Laufzeit und VRAM-Spitzen messen
-- [ ] Einstellungsseite (Modell, VAE, low_vram, FP8, Backend) statt Umgebungsvariablen
+- [x] Conda-Installation (`install.sh`, `start.sh`, `environment.yml`), Modell-Download vorab
+- [x] YuE2 als Standard-Engine; Mock nur als Fallback/Testmodus
+- [x] Einstellungen in der UI (Engine, VRAM-Modus, Backend, Modell/VAE), gespeichert in `data/settings.json`
+- [x] Modell laden/entladen, Status mit Download-Fortschritt, VRAM-Anzeige
+- [x] Fortschritt in echten Einheiten (Tokens ≈ Sekunden Musik), Hinweis bei VRAM voll
+- [ ] Erster Lauf mit YuE2 auf der RTX 4090, Adapter anpassen; Laufzeit und VRAM-Spitzen messen
 - [ ] Fortschritt per Server-Sent Events statt Polling
-- [ ] Bessere Fehlermeldungen (VRAM voll, Modell-Download, abgeschnittene Songs)
 - [ ] Export: FLAC/WAV/MP3, Lautheit normalisieren
 
 ## Phase 2 – Partitur-Workflow (YuE2s Stärke)

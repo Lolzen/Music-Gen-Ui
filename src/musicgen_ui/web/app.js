@@ -2,7 +2,21 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const form = $("#song-form");
 const STATUS = { queued: "wartet", running: "läuft", done: "fertig", failed: "Fehler", cancelled: "abgebrochen" };
-const STAGES = { load: "Modell laden", score: "Partitur", audio: "Audio-Tokens", nar: "Klangsynthese", vae: "Dekodieren" };
+const STAGES = {
+  download: "Modell herunterladen/prüfen", load: "Modell laden", score: "Partitur planen",
+  audio: "Audio generieren", nar: "Klangsynthese", vae: "Dekodieren",
+};
+const TOKENS_PER_SECOND = 25; // YuE2 semantic token rate
+
+function progressText(p) {
+  if (!p || !p.stage) return "";
+  const label = STAGES[p.stage] || p.stage;
+  if (p.total) return `${label} · ${Math.min(100, Math.round((100 * p.done) / p.total))}%`;
+  if (p.stage === "download") return p.done ? `${label} · ${(p.done / 2 ** 30).toFixed(2)} GB im Cache` : `${label} …`;
+  if (p.stage === "audio") return `${label} · ${p.done} Tokens ≈ ${Math.round(p.done / TOKENS_PER_SECOND)} s Musik`;
+  if (p.stage === "score") return `${label} · ${p.done} Tokens`;
+  return label;
+}
 
 let info = null;
 
@@ -134,19 +148,20 @@ function jobCard(job) {
   card.dataset.id = job.id;
   const p = job.progress || {};
   const pct = p.total ? Math.min(100, Math.round((100 * p.done) / p.total)) : null;
-  const stage = STAGES[p.stage] || p.stage || "";
   card.innerHTML = `
     <header><strong></strong><span class="badge">${STATUS[job.status] || job.status}</span></header>
     <p class="muted meta"></p>
     ${job.status === "running" ? `<div class="bar"><div style="width:${pct ?? 100}%" class="${pct === null ? "indeterminate" : ""}"></div></div>
-      <p class="muted">${stage}${pct !== null ? ` · ${pct}%` : ""}</p>` : ""}
+      <p class="muted">${progressText(p) || "startet …"}</p>` : ""}
     ${job.status === "done" ? `<audio controls preload="none" src="/api/jobs/${job.id}/audio"></audio>` : ""}
     ${job.error ? `<p class="error"></p>` : ""}
     <div class="actions"></div>`;
   $("strong", card).textContent = job.title;
   const r = job.result || {};
-  $(".meta", card).textContent = [`Seed ${job.request.seed}`, r.duration_s ? `${r.duration_s}s` : null,
-    r.truncated ? "⚠ abgeschnitten" : null].filter(Boolean).join(" · ");
+  const took = job.started && job.finished ? Math.round(job.finished - job.started) : null;
+  $(".meta", card).textContent = [`Seed ${job.request.seed}`, r.duration_s ? `${r.duration_s} s Musik` : null,
+    took !== null && job.status === "done" ? `in ${took} s generiert` : null,
+    r.truncated ? "⚠ abgeschnitten (Token-Limit erreicht)" : null].filter(Boolean).join(" · ");
   if (job.error) $(".error", card).textContent = job.error;
 
   const actions = $(".actions", card);
@@ -217,12 +232,127 @@ async function useScore(job) {
   form.querySelectorAll("details")[1].open = true;
 }
 
+// ---------------------------------------------------------------- engine status & settings
+function showBanner(html) {
+  const banner = $("#banner");
+  banner.hidden = !html;
+  banner.innerHTML = html || "";
+}
+
+function renderEngine(e) {
+  const box = $("#engine-status");
+  const label = $("#engine-label");
+  box.className = `status ${e.engine === "mock" ? "mock" : e.state}`;
+  const STATE = { unloaded: "nicht geladen", loading: "lädt", ready: "bereit", busy: "generiert", error: "Fehler" };
+  if (e.engine === "mock") {
+    label.textContent = "Mock-Engine · Platzhalter-Audio";
+  } else {
+    const mode = [e.info.quantization === "fp8" ? "FP8" : null, e.info.low_vram ? "Low-VRAM" : null,
+      e.info.backend !== "torch" ? e.info.backend : null].filter(Boolean).join(", ");
+    const extra = e.state === "loading" ? ` · ${progressText(e.progress) || "…"}` : "";
+    label.textContent = `YuE2${mode ? ` (${mode})` : ""} · ${STATE[e.state] || e.state}${extra}`;
+  }
+  $("#engine-load").hidden = !(e.engine === "yue2" && (e.state === "unloaded" || e.state === "error"));
+  $("#engine-unload").hidden = !(e.engine === "yue2" && e.state === "ready");
+
+  if (!e.installed.yue2 && e.engine === "yue2") {
+    showBanner("YuE2 ist ausgewählt, aber nicht installiert. Installation: <code>./install.sh</code> " +
+      "im Projektordner (siehe README) – oder unter ⚙ Einstellungen die Mock-Engine wählen.");
+  } else if (!e.installed.yue2 && e.configured !== "mock") {
+    showBanner("YuE2 ist nicht installiert – es läuft nur der Platzhalter-Modus. " +
+      "Installation: <code>./install.sh</code> im Projektordner (siehe README).");
+  } else if (e.engine === "mock") {
+    showBanner("Mock-Engine aktiv: Es wird kein echtes Modell verwendet. Umstellen unter ⚙ Einstellungen → Engine.");
+  } else if (e.state === "error") {
+    showBanner("");
+    const b = $("#banner");
+    b.hidden = false;
+    b.textContent = `Modell konnte nicht geladen werden: ${e.message}`;
+  } else {
+    showBanner("");
+  }
+}
+
+function renderGpu(gpu) {
+  const box = $("#gpu");
+  box.hidden = !gpu || !gpu.cuda;
+  if (box.hidden) return;
+  $("#gpu-label").textContent = `${gpu.name} · ${gpu.used_gib.toFixed(1)} / ${gpu.total_gib.toFixed(0)} GB`;
+  $("#gpu-bar").style.width = `${Math.round((100 * gpu.used_gib) / gpu.total_gib)}%`;
+}
+
+let statusTimer = null;
+async function refreshStatus() {
+  clearTimeout(statusTimer);
+  let delay = 4000;
+  try {
+    const s = await api("/api/status");
+    renderEngine(s.engine);
+    renderGpu(s.gpu);
+    if (s.engine.state === "loading" || s.engine.state === "busy") delay = 1000;
+  } catch { /* server restarting */ }
+  statusTimer = setTimeout(refreshStatus, delay);
+}
+
+async function engineAction(path) {
+  try {
+    renderEngine(await api(path, { method: "POST" }));
+  } catch (err) {
+    showBanner("");
+    $("#banner").hidden = false;
+    $("#banner").textContent = err.message;
+  }
+  refreshStatus();
+}
+
+async function openSettings() {
+  const { values, choices } = await api("/api/settings");
+  const f = $("#settings-form").elements;
+  for (const key of ["engine", "backend", "device", "memory_budget_gib", "model", "vae"]) f[key].value = values[key];
+  f.vram_mode.value = (values.quantization === "fp8" ? "fp8" : "") + (values.low_vram ? (values.quantization === "fp8" ? "-low" : "low") : "")
+    || "standard";
+  $("#vae-choices").innerHTML = choices.vae.map((v) => `<option value="${v}">`).join("");
+  $("#settings-error").textContent = "";
+  $("#settings-dialog").showModal();
+}
+
+async function saveSettings() {
+  const f = $("#settings-form").elements;
+  const mode = f.vram_mode.value;
+  const values = {
+    engine: f.engine.value, backend: f.backend.value, device: f.device.value,
+    memory_budget_gib: Number(f.memory_budget_gib.value), model: f.model.value, vae: f.vae.value,
+    quantization: mode.startsWith("fp8") ? "fp8" : "none",
+    low_vram: mode === "low" || mode === "fp8-low",
+  };
+  try {
+    const res = await api("/api/settings", { method: "PUT", body: JSON.stringify(values) });
+    renderEngine(res.engine);
+    $("#settings-dialog").close();
+    refreshStatus();
+  } catch (err) {
+    $("#settings-error").textContent = err.message;
+  }
+}
+
+function setupEngineControls() {
+  $("#open-settings").addEventListener("click", openSettings);
+  $("#engine-load").addEventListener("click", () => engineAction("/api/engine/load"));
+  $("#engine-unload").addEventListener("click", () => engineAction("/api/engine/unload"));
+  $("#settings-form").addEventListener("submit", (ev) => {
+    if (ev.submitter && ev.submitter.value === "save") {
+      ev.preventDefault();
+      saveSettings();
+    }
+  });
+}
+
 // ---------------------------------------------------------------- init
 async function init() {
   info = await api("/api/info");
-  const e = info.engine;
-  $("#engine-info").textContent = e.engine === "mock" ? "Mock-Engine (Platzhalter-Audio)"
-    : `${e.model} · ${e.device}${e.low_vram ? " · low VRAM" : ""}${e.loaded ? "" : " · lädt beim ersten Job"}`;
+  renderEngine(info.engine);
+  setupEngineControls();
+  refreshStatus();
 
   for (const name of info.sections) {
     const b = document.createElement("button");
@@ -269,4 +399,4 @@ async function init() {
   refreshJobs();
 }
 
-init().catch((err) => { $("#engine-info").textContent = `Server nicht erreichbar: ${err.message}`; });
+init().catch((err) => { $("#engine-label").textContent = `Server nicht erreichbar: ${err.message}`; });

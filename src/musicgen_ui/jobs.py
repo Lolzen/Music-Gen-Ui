@@ -16,10 +16,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .engine import Cancelled, Engine
+from .engine import Cancelled
 from .models import SongSpec
 from .plugins import PluginManager
 from .prompting import compile_spec, make_id
+from .runtime import EngineManager
 
 log = logging.getLogger(__name__)
 ACTIVE = ("queued", "running")
@@ -46,8 +47,8 @@ class Job:
 
 
 class JobQueue:
-    def __init__(self, engine: Engine, library_dir: Path, plugins: PluginManager | None = None):
-        self.engine = engine
+    def __init__(self, manager: EngineManager, library_dir: Path, plugins: PluginManager | None = None):
+        self.manager = manager
         self.library_dir = library_dir
         self.plugins = plugins or PluginManager()
         self._jobs: dict[str, Job] = {}
@@ -129,6 +130,10 @@ class JobQueue:
             jobs.append(job)
         return jobs
 
+    @property
+    def running(self) -> Job | None:
+        return next((j for j in self._jobs.values() if j.status == "running"), None)
+
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
 
@@ -188,13 +193,13 @@ class JobQueue:
             data["sections"] = [Section(**s) for s in data.get("sections", [])]
             request = CompiledRequest(**data)
             try:
-                result = self.engine.generate(request, self._job_dir(job.id), progress=progress,
-                                              cancelled=lambda job_id=job.id: job_id in self._cancel)
+                result = self.manager.generate(request, self._job_dir(job.id), progress=progress,
+                                               cancelled=lambda job_id=job.id: job_id in self._cancel)
             except Cancelled:
                 self._finish(job, "cancelled")
             except Exception as exc:  # noqa: BLE001
                 log.exception("Job %s failed", job.id)
-                self._finish(job, "failed", f"{type(exc).__name__}: {exc}")
+                self._finish(job, "failed", describe_error(exc))
             else:
                 job.result = {"duration_s": round(result.duration_s, 2), "sample_rate": result.sample_rate,
                               "truncated": result.truncated, "has_score": result.score_abc is not None,
@@ -202,6 +207,14 @@ class JobQueue:
                 self._finish(job, "done")
             finally:
                 self._cancel.discard(job.id)
+
+
+def describe_error(exc: Exception) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    if "OutOfMemory" in type(exc).__name__ or "out of memory" in str(exc).lower():
+        text += (" → Grafikspeicher voll. In den Einstellungen VRAM-Modus 'FP8' oder 'Low-VRAM' wählen, "
+                 "andere GPU-Programme schließen oder max_tokens reduzieren.")
+    return text
 
 
 def _jsonable(value: Any) -> Any:

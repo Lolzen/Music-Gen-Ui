@@ -54,3 +54,9 @@ YuE2 akzeptiert kein Referenz-Audio. Stimmen werden deshalb über *Stem-Separati
 
 Es gibt keinen offiziellen Trainingscode. Datenvorbereitung und Training sind ein eigenes, GPU-intensives Projekt mit anderem Lebenszyklus.
 Diese App lädt höchstens fertige Adapter.
+
+## E9 – Installation über Conda
+
+Viele WebUIs auf einem Rechner brauchen getrennte Umgebungen. `install.sh` legt deshalb eine eigene Conda-Umgebung an (Python 3.12, git, ffmpeg).
+PyTorch kommt per pip aus dem offiziellen CUDA-Index, wie es YuE2 vorgibt. conda-forge-PyTorch-Builds würden von den YuE2-Pins abweichen.
+`start.sh` aktiviert die Umgebung selbst, man muss sie also nicht vorher aktivieren. Ohne die Skripte geht es mit `environment.yml` und den manuellen Schritten in der README.

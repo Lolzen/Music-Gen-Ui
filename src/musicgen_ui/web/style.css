@@ -12,6 +12,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; align-items: baseline; gap: 1rem; padding: 0.8rem 1rem; }
@@ -70,3 +71,20 @@ dialog { max-width: min(90vw, 60rem); width: 100%; border: 1px solid var(--line)
   background: var(--panel); color: var(--text); }
 #score-render { background: #fff; border-radius: 6px; }
 #score-text { white-space: pre-wrap; font-size: 0.75rem; max-height: 14rem; overflow: auto; }
+
+/* --- top bar, engine status, settings ------------------------------------ */
+.topbar { flex-wrap: wrap; align-items: center; }
+.spacer { flex: 1; }
+.status { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+.status .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--muted); }
+.status.ready .dot { background: var(--ok); }
+.status.busy .dot, .status.loading .dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.status.error .dot { background: var(--error); }
+.status.mock .dot { background: var(--warn); }
+.gpu { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); }
+.bar.small { width: 7rem; height: 5px; }
+.banner { margin: 0 1rem 1rem; padding: 0.6rem 0.9rem; border-radius: 8px; background: var(--warn-bg);
+  color: var(--warn); font-size: 0.9rem; }
+.banner code { color: var(--text); }
+#settings-dialog h2 { font-size: 1.05rem; margin-top: 0; }
+#settings-dialog .row { justify-content: flex-end; margin-top: 0.8rem; }

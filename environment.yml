@@ -1,0 +1,11 @@
+# Conda-Umgebung für Music-Gen-UI.
+# Empfohlen: ./install.sh (erledigt auch PyTorch, YuE2 und den Modell-Download).
+# Manuell:   conda env create -f environment.yml   → danach Schritte aus der README.
+name: music-gen-ui
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - git
+  - ffmpeg
