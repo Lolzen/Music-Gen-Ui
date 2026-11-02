@@ -44,6 +44,7 @@ Optionen:
 | `--no-models` | Modelle nicht vorab laden; das passiert sonst beim ersten Song |
 | `--cuda cu126` | andere PyTorch-CUDA-Variante |
 | `--mock` | nur die Oberfläche, ohne PyTorch/YuE2 (zum Ausprobieren) |
+| `--yue2-ref REF` | andere YuE2-Version statt Release `yue2-v0.1.6`, z.B. `main` (siehe unten) |
 
 **Aktualisieren:** `git pull` und danach erneut `./install.sh`.
 **Modelle woanders speichern:** vor Installation und Start `export HF_HOME=/pfad/zum/cache` setzen, wie bei anderen WebUIs auch.
@@ -160,7 +161,20 @@ Umgebungsvariablen überschreiben die gespeicherten Einstellungen. Das ist prakt
 | „Grafikspeicher voll“ / OutOfMemory | Andere GPU-Programme schließen (z.B. andere WebUIs mit geladenem Modell), dann VRAM-Modus *FP8* oder *Low-VRAM* wählen |
 | `yue2 doctor` meldet Fehler | Treiber/CUDA-Version prüfen (`nvidia-smi`), notfalls `./install.sh --cuda cu126` |
 | Port belegt | `./start.sh --port 7861` |
+| `unexpected keyword argument 'low_vram'` o.ä. | Behoben: Die App erkennt jetzt die installierte YuE2-Version (siehe unten) |
 | Erster Song dauert lange | Beim ersten Mal werden mehrere GB heruntergeladen und geprüft. Der Fortschritt steht oben rechts |
+
+### YuE2-Versionen
+
+Standard ist das offizielle Release **`yue2-v0.1.6`**. Neuere Commits auf YuE2-`main` tragen dieselbe Versionsnummer, haben aber eine andere API. Die App erkennt das automatisch:
+
+| Funktion | Release `yue2-v0.1.6` | YuE2 `main` |
+|---|---|---|
+| VRAM-Modus *Low-VRAM* | wird als „AR-Auslagerung“ (`offload_ar`) umgesetzt; spart weniger | echtes `low_vram` |
+| Fortschritt Klangsynthese/Dekodieren | nicht verfügbar; die Anzeige bleibt bis zum Ende bei „Audio generieren“ | mit Prozentanzeige |
+
+Die neuere Version installierst du mit `./install.sh --yue2-ref main`. Das ist unveröffentlichter Code, also nur bei Bedarf nutzen.
+Zurück zum Release geht es mit einem normalen `./install.sh`. Welche Version läuft, zeigt der Tooltip des Modellstatus oben links.
 
 ## Entwicklung
 

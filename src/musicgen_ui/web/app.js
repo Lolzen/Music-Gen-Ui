@@ -247,10 +247,12 @@ function renderEngine(e) {
   if (e.engine === "mock") {
     label.textContent = "Mock-Engine · Platzhalter-Audio";
   } else {
-    const mode = [e.info.quantization === "fp8" ? "FP8" : null, e.info.low_vram ? "Low-VRAM" : null,
+    const mode = [e.info.quantization === "fp8" ? "FP8" : null, { low_vram: "Low-VRAM", offload_ar: "Low-VRAM via AR-Auslagerung", unsupported: "Low-VRAM nicht verfügbar" }[e.info.low_vram_mode] || null,
       e.info.backend !== "torch" ? e.info.backend : null].filter(Boolean).join(", ");
     const extra = e.state === "loading" ? ` · ${progressText(e.progress) || "…"}` : "";
     label.textContent = `YuE2${mode ? ` (${mode})` : ""} · ${STATE[e.state] || e.state}${extra}`;
+    label.title = e.info.yue2 ? `yue2-infer ${e.info.yue2.version}` +
+      (e.info.yue2.stage_progress ? "" : " (Release-API: kein Fortschritt für Klangsynthese/Dekodieren)") : "";
   }
   $("#engine-load").hidden = !(e.engine === "yue2" && (e.state === "unloaded" || e.state === "error"));
   $("#engine-unload").hidden = !(e.engine === "yue2" && e.state === "ready");

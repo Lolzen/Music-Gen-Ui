@@ -7,6 +7,7 @@
 #   ./install.sh --no-models     Modelle nicht vorab herunterladen (passiert sonst beim 1. Song)
 #   ./install.sh --mock          nur die Oberfläche, ohne PyTorch/YuE2 (zum Ausprobieren)
 #   ./install.sh --cuda cu126    andere PyTorch-CUDA-Variante (Treiber zu alt für 12.8)
+#   ./install.sh --yue2-ref REF  andere YuE2-Version (Git-Tag/Branch/Commit, z.B. main)
 #
 # Erneut ausführen = Update (Umgebung bleibt, Pakete werden aktualisiert).
 set -euo pipefail
@@ -17,6 +18,8 @@ TORCH_VERSION="2.10.0"
 FAST=0
 MODELS=1
 MOCK=0
+YUE2_REF="yue2-v0.1.6"  # official release; must match pyproject.toml
+YUE2_REPO="https://github.com/multimodal-art-projection/YuE"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,7 +28,8 @@ while [[ $# -gt 0 ]]; do
     --fast) FAST=1; shift ;;
     --no-models) MODELS=0; shift ;;
     --mock) MOCK=1; MODELS=0; shift ;;
-    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --yue2-ref) YUE2_REF="$2"; shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unbekannte Option: $1 (siehe --help)" >&2; exit 1 ;;
   esac
 done
@@ -79,6 +83,11 @@ else
   [[ "$FAST" == 1 ]] && EXTRAS="$EXTRAS,fast"
   step "Installiere Music-Gen-UI + YuE2 ($EXTRAS)"
   python -m pip install -e ".[$EXTRAS]"
+  # Always pin YuE2 explicitly: release and main share the version number 0.1.6,
+  # so pip would otherwise keep whichever variant is already installed.
+  step "Installiere YuE2-Version '$YUE2_REF'"
+  python -m pip install --force-reinstall --no-deps "yue2-infer @ git+$YUE2_REPO@$YUE2_REF"
+  python -m pip check || echo "Hinweis: Abhängigkeiten passen evtl. nicht exakt zu '$YUE2_REF' (siehe oben)." >&2
   step "YuE2-Umgebungscheck (yue2 doctor)"
   yue2 doctor || echo "Hinweis: 'yue2 doctor' meldet Probleme (siehe oben) – die UI startet trotzdem." >&2
 fi
