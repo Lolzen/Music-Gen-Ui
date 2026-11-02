@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music-Gen-UI</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Sheet-music rendering for the YuE2 score (optional; the UI works without it). -->
+  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js" defer></script>
+  <script src="app.js" type="module"></script>
+</head>
+<body>
+<header>
+  <h1>Music-Gen-UI</h1>
+  <span id="engine-info" class="muted">…</span>
+</header>
+
+<main>
+  <form id="song-form" class="panel" autocomplete="off">
+    <div class="row">
+      <label class="grow">Vorlage
+        <select id="preset"><option value="">– keine –</option></select>
+      </label>
+      <label class="grow">Titel <input name="title" value="Untitled" maxlength="120"></label>
+    </div>
+
+    <fieldset>
+      <legend>Stil</legend>
+      <textarea name="style" rows="3"
+        placeholder="Genre, Instrumente, Stimmung, z.B. warm piano pop, rounded bass, light drums, lyrical melody"></textarea>
+      <div class="row">
+        <label class="grow">Sprache <input name="language" value="English"></label>
+        <label>BPM <input name="bpm" type="number" min="30" max="300" placeholder="auto"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Stimmen</legend>
+      <label class="check"><input type="checkbox" name="instrumental"> Instrumental (keine Stimmen)</label>
+      <div id="voices"></div>
+      <button type="button" id="add-voice" class="ghost">+ Stimme</button>
+      <p class="hint">Geschlecht und Klangfarbe sind bei YuE2 nur Hinweise im Stil-Text, keine harte Steuerung.
+        Mit <code>[Chorus @id]</code> ordnest du Abschnitte Stimmen zu (für die spätere Voice-Conversion).</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Lyrics</legend>
+      <div id="section-buttons" class="chips"></div>
+      <textarea name="lyrics" rows="12" placeholder="[Verse]&#10;…&#10;&#10;[Chorus]&#10;…"></textarea>
+    </fieldset>
+
+    <details>
+      <summary>Feinsteuerung</summary>
+      <div class="grid">
+        <label>Plan-Modus
+          <select name="plan_mode">
+            <option value="full">full – Melodie + Akkorde planen</option>
+            <option value="melody">melody – nur Melodie planen</option>
+            <option value="off">off – ohne Partitur</option>
+          </select>
+        </label>
+        <label>Seed
+          <span class="row tight"><input name="seed" type="number" min="0" placeholder="zufällig">
+          <button type="button" id="dice" class="ghost" title="Zufälliger Seed">🎲</button></span>
+        </label>
+        <label>Takes (Kandidaten) <input name="candidates" type="number" min="1" max="8" value="1"></label>
+        <label><span><input type="checkbox" data-enable="cfg_scale"> Stil-Treue (CFG)</span>
+          <input name="cfg_scale" type="range" min="0" max="5" step="0.1" value="1.5" disabled>
+          <output data-for="cfg_scale"></output>
+        </label>
+        <label><span><input type="checkbox" data-enable="audio_temperature"> Zufall / Kreativität</span>
+          <input name="audio_temperature" type="range" min="0.1" max="2" step="0.05" value="1" disabled>
+          <output data-for="audio_temperature"></output>
+        </label>
+        <label><span><input type="checkbox" data-enable="audio_top_p"> top_p</span>
+          <input name="audio_top_p" type="range" min="0.5" max="1" step="0.01" value="0.95" disabled>
+          <output data-for="audio_top_p"></output>
+        </label>
+      </div>
+      <p class="hint">Nicht aktivierte Regler verwenden die YuE2-Standardwerte.</p>
+    </details>
+
+    <details>
+      <summary>Eigene Partitur (ABC)</summary>
+      <textarea name="abc" rows="8" placeholder="Optional: ABC mit Stimmen Vocal/Ins. Ersetzt den Planer."></textarea>
+    </details>
+
+    <details>
+      <summary>Experte: Stil-Text direkt</summary>
+      <textarea name="style_override" rows="3" placeholder="Wenn gesetzt, wird dieser Text unverändert an YuE2 geschickt."></textarea>
+    </details>
+
+    <section id="preview" class="preview">
+      <h3>Was YuE2 bekommt</h3>
+      <pre id="preview-style"></pre>
+      <pre id="preview-lyrics"></pre>
+      <ul id="preview-warnings" class="warnings"></ul>
+    </section>
+
+    <button type="submit" id="generate" class="primary">Generieren</button>
+    <p id="form-error" class="error"></p>
+  </form>
+
+  <section class="panel">
+    <h2>Warteschlange &amp; Bibliothek</h2>
+    <div id="jobs"></div>
+  </section>
+</main>
+
+<dialog id="score-dialog">
+  <div id="score-render"></div>
+  <pre id="score-text"></pre>
+  <form method="dialog"><button>Schließen</button></form>
+</dialog>
+
+<template id="voice-template">
+  <div class="voice row">
+    <input class="v-id" value="lead" pattern="[A-Za-z0-9_\-]{1,32}" title="ID für @-Zuordnung" size="8">
+    <select class="v-gender">
+      <option value="female">weiblich</option>
+      <option value="male">männlich</option>
+      <option value="any">egal</option>
+    </select>
+    <input class="v-desc grow" placeholder="Klang, z.B. breathy, warm, raspy">
+    <button type="button" class="v-remove ghost" title="Entfernen">✕</button>
+  </div>
+</template>
+</body>
+</html>
