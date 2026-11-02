@@ -26,7 +26,7 @@ Dafür hat YuE2 etwas, das Suno nicht offenlegt: eine **editierbare Partitur** (
 | Randomness | ✅ seed + Sampling | Seed, „Zufall/Kreativität“ (temperature), top_p, CFG, mehrere Takes | **fertig** |
 | Titel erweitern | ❌ keine Fortsetzung | 3 Wege, siehe unten | Phase 3 |
 | SFX/Clips als Intro/Bridge | ❌ | Arrangement-Timeline in der App, Übergänge per YuE2-Instrumental | Phase 3 |
-| Weights | ? (Begriff klären) | Checkpoint/VAE/FP8 wählbar, Regler für Stil-Treue | teilweise |
+| Weights (Prompt-Gewichtung wie `(piano:1.3)`) | ❌ | entfällt, siehe unten | gestrichen |
 | LoRA | ❌ kein Adapter-Code, kein Trainingscode veröffentlicht | Engine-Schnittstelle offen halten; Training als eigenes Projekt | später |
 
 ---
@@ -83,12 +83,12 @@ Das ist Audio-Postproduktion und nichts, was YuE2 lösen muss: eine **Arrangemen
 YuE2 kann zusätzlich kurze **Instrumental-Clips** erzeugen (offizielles `instrumental_clip.py`), passend zum Stil für Übergänge.
 Einschränkung: Der Song „weiß“ nichts vom SFX. Ein Bruch im Song selbst entsteht nur, wenn man in der Partitur eine Pause oder ein `[Interlude]` vorsieht.
 
-### Weights: was ist gemeint?
-Hier gibt es drei mögliche Bedeutungen:
-
-- **Modellgewichte** (Checkpoint, Revision, VAE `YuE2-Vae` vs. `YuE2-Vae-legacy`, FP8-Quantisierung): per Konfiguration wählbar.
-- **Regler-Gewichte** im Suno-Sinn (Style Influence …): `cfg_scale` und Sampling.
-- **Gewichtung einzelner Prompt-Begriffe** wie `(piano:1.3)` aus Stable Diffusion: **gibt es bei YuE2 nicht.**
+### Weights (gestrichen)
+Gemeint war die Gewichtung einzelner Prompt-Begriffe wie `(piano:1.3)` aus Stable Diffusion. YuE2 kennt das nicht: Der Stil geht als einfacher Text ins Modell, und `cfg_scale` wirkt nur auf den Prompt als Ganzes.
+Eine Nachbildung über Wortwiederholung o.ä. wäre unzuverlässig. Der Punkt ist deshalb gestrichen.
+Was es weiterhin gibt:
+- **Modell-Auswahl:** Checkpoint, VAE (`YuE2-Vae` / `YuE2-Vae-legacy`), FP8 (per Konfiguration)
+- **Gesamt-Regler:** Stil-Treue und Kreativität
 
 ### LoRA
 Im YuE2-Code gibt es weder Adapter-Laden noch Trainingsskripte (Stand 0.1.6). LoRA bräuchte zwei Dinge:

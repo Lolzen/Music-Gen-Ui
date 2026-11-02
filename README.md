@@ -23,6 +23,14 @@ Die Mock-Engine erzeugt eine Platzhalter-Melodie. Sie ist für die Arbeit an UI 
 
 Voraussetzung: NVIDIA-GPU mit BF16 und ca. 24 GB VRAM. Mit `--low-vram` ist weniger möglich (experimentell, siehe [YuE2 hardware.md](https://github.com/multimodal-art-projection/YuE/blob/main/docs/hardware.md)).
 
+**Zielhardware RTX 4090 (24 GB):** Das ist genau der Standardpfad von YuE2, die Defaults passen ohne Änderung.
+Treibt die Karte gleichzeitig den Desktop (v.a. unter Windows), fehlen oft 1–2 GB VRAM. Bei „out of memory“ in dieser Reihenfolge ausweichen:
+
+1. `MGU_QUANTIZATION=fp8`: experimentell, braucht Compute Capability ≥ 8.9 (die 4090 hat 8.9); nur der Planungsteil läuft in FP8
+2. `MGU_LOW_VRAM=1`: langsamer, lagert Modellteile in den Arbeitsspeicher aus
+
+Das schnellere `vllm`-Backend gibt es laut YuE2 nur unter Linux.
+
 ```bash
 pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128
 pip install -e ".[yue2,lua]"
@@ -91,5 +99,5 @@ pytest
 
 ## Lizenz
 
-Code dieses Projekts: noch nicht festgelegt.
+Code dieses Projekts: vorerst keine Lizenz (alle Rechte beim Autor).
 Für die YuE2-**Gewichte** gilt eine eigene Lizenz: CC BY-NC 4.0 mit Zusatzerlaubnis für Creator ([MODEL_LICENSE](https://github.com/multimodal-art-projection/YuE/blob/main/MODEL_LICENSE)).

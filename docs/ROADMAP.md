@@ -11,7 +11,7 @@
 - [x] Mock-Engine + Tests
 
 ## Phase 1 – Echte Generierung stabil
-- [ ] Erster Lauf mit `--engine yue2` auf der Ziel-Hardware, Adapter anpassen
+- [ ] Erster Lauf mit `--engine yue2` auf der RTX 4090, Adapter anpassen; Laufzeit und VRAM-Spitzen messen
 - [ ] Einstellungsseite (Modell, VAE, low_vram, FP8, Backend) statt Umgebungsvariablen
 - [ ] Fortschritt per Server-Sent Events statt Polling
 - [ ] Bessere Fehlermeldungen (VRAM voll, Modell-Download, abgeschnittene Songs)
