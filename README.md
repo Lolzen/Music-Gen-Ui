@@ -332,8 +332,30 @@ Standard ist das offizielle Release **`yue2-v0.1.6`**. Neuere Commits auf YuE2-`
 Die neuere Version installierst du mit `./install.sh --yue2-ref main`. Das ist unveröffentlichter Code, also nur bei Bedarf nutzen.
 Zurück zum Release geht es mit einem normalen `./install.sh`. Welche Version läuft, zeigt der Tooltip des Modellstatus oben links.
 
+### Desktop/Browser frieren während der Klangsynthese ein
+
+Treibt die Grafikkarte auch den Bildschirm, kann es so aussehen, als sei das System abgestürzt:
+- Browser schließen sich, Menüs und neue Fenster öffnen sich nicht.
+- Der Server läuft aber weiter und lässt sich mit Strg+C beenden. Danach ist alles wieder normal, ein Neustart ist **nicht** nötig.
+
+**Ursache:** Die offizielle YuE2-Klangsynthese rechnet die Attention über die ganze Sequenz (~24.000 Tokens) in einem Stück pro Schicht. Solange das läuft, kommt der Desktop nicht an die GPU, und Chrome/Chromium beendet sich über seinen GPU-Watchdog.
+
+**Abhilfe:** ⚙ Einstellungen → Speicher & Offload → **Desktop flüssig halten**:
+
+| Stufe | Wirkung |
+|---|---|
+| *Ausgewogen* (Standard) | Attention in Blöcken von 4.096 Abfragen, alle 4 Schichten 1 ms Pause für den Desktop |
+| *Flüssig* | Blöcke von 2.048, alle 2 Schichten 3 ms Pause; die Klangsynthese wird etwas langsamer |
+| *Aus* | volle Geschwindigkeit wie das Original |
+
+Das Komponieren (CUDA-Graphs) bleibt unverändert schnell.
+Wer eine Grafikeinheit in der CPU hat, kann den Monitor stattdessen ans Mainboard anschließen. Dann gehört die 4090 ganz der Musik.
+
+Hängt eine GPU-Abfrage, schreibt das Speicher-Protokoll „GPU antwortet seit N s nicht“, die RAM-Werte laufen weiter.
+
 ### Absturz ohne vollen Speicher
 
+Echter Absturz: Auch Strg+C reagiert nicht mehr, der Bildschirm wird schwarz oder der PC startet neu.
 Bleibt im Speicher-Protokoll genug RAM und VRAM frei und friert das System trotzdem ein, liegt die Ursache fast immer unterhalb der App: beim Grafiktreiber oder der Grafikkarte.
 Ein normaler Prozess kann Linux sonst nicht einfrieren. Besonders verdächtig ist der Wechsel von `audio` (Komponieren, wenig Last) zu `nar` (Klangsynthese, Volllast): An dieser Stelle zieht eine 4090 kurz deutlich mehr als 450 W.
 

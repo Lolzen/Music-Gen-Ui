@@ -72,6 +72,10 @@ def test_settings_blocked_while_generating(tmp_path):
             if c.get(f"/api/jobs/{job['id']}").json()["status"] == "running":
                 break
             time.sleep(0.02)
+        for _ in range(250):  # the job turns "running" just before the engine reports "busy"
+            if c.get("/api/status").json()["engine"]["state"] == "busy":
+                break
+            time.sleep(0.02)
         assert c.get("/api/status").json()["engine"]["state"] == "busy"
         assert c.put("/api/settings", json={"low_vram": True}).status_code == 409
         c.post(f"/api/jobs/{job['id']}/cancel")

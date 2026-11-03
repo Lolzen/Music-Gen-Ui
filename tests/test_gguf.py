@@ -436,3 +436,30 @@ def test_yue2cpp_layout_loads(tiny_lm, tiny_lm_cpp, tmp_path):
     (root / "yue2" / tiny_lm_cpp.name).write_bytes(tiny_lm_cpp.read_bytes())
     entry = next(e for e in catalog.scan(root)["checkpoint"] if e["format"] == "gguf")
     assert entry["engine"] == "yue2" and entry["quant"] == "Q8_0" and "yue2.cpp" in entry["note"]
+
+
+def test_gpu_share_chunks_attention_and_cleans_up(tiny_lm, tiny_vae, tmp_path, monkeypatch):
+    import yue2.nar as nar
+    from musicgen_ui.config import Settings
+    from musicgen_ui.engine.yue2 import YuE2Engine
+    from musicgen_ui.models import SongSpec
+    from musicgen_ui.prompting import compile_spec
+    _, lm_path = tiny_lm
+    _, vae_path = tiny_vae
+    seen = []
+    original = nar.attention
+
+    def spy(q, k, v, *args, query_chunk_size=None, **kwargs):
+        seen.append(query_chunk_size)
+        return original(q, k, v, *args, query_chunk_size=query_chunk_size, **kwargs)
+    monkeypatch.setattr(nar, "attention", spy)
+    engine = YuE2Engine(Settings(model=str(lm_path), vae=str(vae_path), device="auto", gpu_share="smooth",
+                                 data_dir=tmp_path / "data"))
+    spec = SongSpec(style="pop", lyrics="[Verse]\nla", seed=1, plan_mode="off", audio_sampling={"max_tokens": 8})
+    request = compile_spec(spec)
+    request.semantic_sampling["min_tokens"] = 4
+    engine.generate(request, tmp_path / "out", progress=lambda *e: None, cancelled=lambda: False)
+    assert seen and set(seen) == {2048}                 # synthesis attention ran in query blocks
+    assert nar.attention is spy                          # our patch was undone
+    hooks = [len(layer.nar_mlp._forward_pre_hooks) for layer in engine._pipe._model.model.layers]
+    assert hooks == [0] * len(hooks)                     # pause hooks removed after the song

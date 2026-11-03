@@ -14,6 +14,7 @@ package and only passes what it accepts.
 from __future__ import annotations
 
 import inspect
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -30,6 +31,8 @@ MODEL_RAM_FALLBACK_GIB = 7.5   # YuE2-3B in BF16, used until the real file size 
 # Rough host-RAM need of a GGUF model before it is loaded (exact value afterwards).
 GGUF_RAM_ESTIMATE_GIB = {"bf16": 7.5, "balanced": 6.0, "max": 3.5}
 OFFLOAD_VAE_FRAMES = 512        # YuE2's own default for small memory budgets
+# GPU sharing: (attention query block, pause every n NAR layers, pause in ms)
+GPU_SHARE = {"balanced": (4096, 4, 1.0), "smooth": (2048, 2, 3.0)}
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,7 @@ class YuE2Engine:
                 "low_vram": s.low_vram, "quantization": s.quantization, "backend": s.backend,
                 "loaded": self.loaded, "low_vram_mode": self._low_vram_mode(),
                 "offload": s.offload, "idle_placement": s.idle_placement,
+                "gpu_share": s.gpu_share,
                 "gguf": self.uses_gguf, "gguf_mode": s.gguf_mode if self.uses_gguf else None,
                 "gguf_report": self.gguf_report,
                 "loras": list(self.lora_state.signature) if self.lora_state else [],
@@ -220,6 +224,56 @@ class YuE2Engine:
             raise
         self._pipe = pipe
 
+    @contextmanager
+    def _gpu_share(self):
+        """Give the desktop/browser GPU time during sound synthesis.
+
+        YuE2 runs the NAR attention over the whole ~24k-token sequence in one
+        kernel per layer; on a GPU that also drives the display, the desktop
+        starves and browsers' GPU watchdogs kill them. We split the attention
+        into query blocks (YuE2's own ``query_chunk_size``) and pause briefly
+        every few NAR layers. The AR phase (CUDA graphs) is not touched."""
+        level = GPU_SHARE.get(self.settings.gpu_share)
+        if level is None or self.settings.device == "cpu" or self.settings.backend == "vllm":
+            yield
+            return
+        model = getattr(self._pipe, "_model", None)
+        if model is None and hasattr(self._pipe, "_load_model"):
+            model = self._pipe._load_model(for_nar=True)  # YuE2 would load it lazily inside the song
+        import time
+        import torch
+        try:
+            import yue2.nar as nar
+        except ImportError:  # other yue2 versions/stand-ins: only the pauses apply
+            nar = None
+        block, every, pause_ms = level
+        original = getattr(nar, "attention", None)
+
+        def chunked(q, k, v, *args, query_chunk_size=None, **kwargs):
+            return original(q, k, v, *args, query_chunk_size=query_chunk_size or block, **kwargs)
+
+        counter = {"n": 0}
+
+        def breather(_module, _inputs):
+            counter["n"] += 1
+            if counter["n"] % every == 0 and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                time.sleep(pause_ms / 1000)
+
+        handles = []
+        if original is not None:
+            nar.attention = chunked
+        try:
+            if model is not None:
+                handles = [layer.nar_mlp.register_forward_pre_hook(breather)
+                           for layer in model.model.layers if hasattr(layer, "nar_mlp")]
+            yield
+        finally:
+            if original is not None:
+                nar.attention = original
+            for handle in handles:
+                handle.remove()
+
     def _mark_phases(self, progress: ProgressFn) -> dict:
         pipe, wrapped = self._pipe, {}
         for name, stage in (("synthesize", "nar"), ("decode", "vae")):
@@ -296,7 +350,8 @@ class YuE2Engine:
             # (the memory log then shows exactly where a crash happened).
             markers = self._mark_phases(progress)
         try:
-            song = self._pipe(**call)
+            with self._gpu_share():
+                song = self._pipe(**call)
         except InterruptedError as exc:
             raise Cancelled() from exc
         finally:

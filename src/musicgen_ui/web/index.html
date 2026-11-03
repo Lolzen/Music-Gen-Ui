@@ -200,6 +200,13 @@
         <label>VRAM-Reserve für Desktop/andere Programme (GB)
           <input name="vram_reserve_gib" type="number" min="0" max="64" step="0.5">
         </label>
+        <label>Desktop flüssig halten (GPU teilen)
+          <select name="gpu_share">
+            <option value="balanced">Ausgewogen – Desktop bleibt bedienbar (empfohlen)</option>
+            <option value="smooth">Flüssig – mehr Pausen, Klangsynthese etwas langsamer</option>
+            <option value="off">Aus – volle Geschwindigkeit, Desktop/Browser können einfrieren</option>
+          </select>
+        </label>
         <label>GGUF-Modus (nur bei .gguf-Modellen)
           <select name="gguf_mode">
             <option value="balanced">Ausgewogen – Klangteil bleibt gepackt (empfohlen)</option>

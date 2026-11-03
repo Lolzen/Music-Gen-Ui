@@ -484,7 +484,7 @@ async function openSettings() {
   const { values, choices } = await api("/api/settings");
   const f = $("#settings-form").elements;
   for (const key of ["engine", "backend", "device", "memory_budget_gib", "model", "vae",
-    "idle_placement", "vram_reserve_gib", "ram_guard_gib", "gguf_mode"]) f[key].value = values[key];
+    "idle_placement", "vram_reserve_gib", "ram_guard_gib", "gguf_mode", "gpu_share"]) f[key].value = values[key];
   f.vram_mode.value = values.quantization === "fp8" ? "fp8" : "standard";
   f.offload.checked = values.offload;
   scheduleDialogPrediction();
@@ -501,6 +501,7 @@ function dialogValues() {
     memory_budget_gib: Number(f.memory_budget_gib.value), model: f.model.value, vae: f.vae.value,
     quantization: mode === "fp8" ? "fp8" : "none",
     offload: f.offload.checked, idle_placement: f.idle_placement.value, gguf_mode: f.gguf_mode.value,
+    gpu_share: f.gpu_share.value,
     vram_reserve_gib: Number(f.vram_reserve_gib.value), ram_guard_gib: Number(f.ram_guard_gib.value),
   };
 }

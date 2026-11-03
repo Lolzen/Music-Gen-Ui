@@ -122,14 +122,13 @@ class MemoryLog:
         self.path = self.directory / f"memory-{time.strftime('%Y-%m-%d')}.log"
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="memory-log", daemon=True)
+        self._gpu_thread = threading.Thread(target=self._sample_gpu, name="memory-log-gpu", daemon=True)
+        self._gpu_started: float | None = None
+        self._gpu_last: tuple[float, str] | None = None
         self._lock = threading.Lock()
 
-    def _snapshot(self) -> str:
+    def _gpu_text(self) -> str:
         parts = []
-        ram = self.ram_reader()
-        if ram:
-            parts.append(f"RAM frei {ram['available_gib']:.1f}/{ram['total_gib']:.1f} GB")
-            parts.append(f"Swap {ram['swap_used_gib']:.1f} GB")
         try:
             gpu = self.gpu_reader()
         except Exception:  # noqa: BLE001 - logging must never break a song
@@ -140,6 +139,31 @@ class MemoryLog:
         telemetry = self.telemetry_reader()
         if telemetry:
             parts.append(telemetry)
+        return "  ".join(parts)
+
+    def _sample_gpu(self) -> None:
+        """Own thread: a GPU busy with long kernels can block driver queries (nvidia-smi,
+        mem_get_info); RAM lines must keep coming and the stall itself is reported."""
+        import time
+        while not self._stop.is_set():
+            self._gpu_started = time.monotonic()
+            text = self._gpu_text()
+            self._gpu_last = (time.monotonic(), text)
+            self._gpu_started = None
+            self._stop.wait(self.interval)
+
+    def _snapshot(self) -> str:
+        import time
+        parts = []
+        ram = self.ram_reader()
+        if ram:
+            parts.append(f"RAM frei {ram['available_gib']:.1f}/{ram['total_gib']:.1f} GB")
+            parts.append(f"Swap {ram['swap_used_gib']:.1f} GB")
+        started, last = self._gpu_started, self._gpu_last
+        if started is not None and time.monotonic() - started > max(3.0, 3 * self.interval):
+            parts.append(f"GPU antwortet seit {time.monotonic() - started:.0f} s nicht (voll ausgelastet?)")
+        elif last is not None and last[1]:
+            parts.append(last[1])
         return "  ".join(parts)
 
     def write(self, text: str) -> None:
@@ -172,6 +196,7 @@ class MemoryLog:
             self._prune()
         except OSError:
             pass
+        self._gpu_thread.start()
         self._thread.start()
         return self
 
@@ -187,6 +212,19 @@ _replays = {"value": None, "at": 0.0}
 REPLAY_INTERVAL_S = 15.0
 
 
+def _run_nowait(cmd: list[str], timeout: float):
+    """subprocess.run(), but a child stuck in the driver cannot block us after the timeout."""
+    import subprocess
+    from types import SimpleNamespace
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()  # no second communicate(): it would wait for an uninterruptible child
+        raise
+    return SimpleNamespace(returncode=proc.returncode, stdout=out)
+
+
 def parse_replays(text: str) -> int | None:
     match = re.search(r"Replays Since Reset\s*:\s*(\d+)", text)
     return int(match.group(1)) if match else None
@@ -198,7 +236,7 @@ def _pcie_replays(now: float) -> int | None:
     if now - _replays["at"] >= REPLAY_INTERVAL_S:
         _replays["at"] = now
         try:
-            out = subprocess.run(["nvidia-smi", "-q", "-i", "0"], capture_output=True, text=True, timeout=3).stdout
+            out = _run_nowait(["nvidia-smi", "-q", "-i", "0"], 3).stdout
             _replays["value"] = parse_replays(out)
         except Exception:  # noqa: BLE001
             _replays["value"] = None
@@ -221,8 +259,7 @@ def gpu_telemetry() -> str | None:
             return None
     try:
         fields = _SMI_FIELDS + (_SMI_PCIE if _smi_pcie else "")
-        result = subprocess.run(["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits", "-i", "0"],
-                                capture_output=True, text=True, timeout=2)
+        result = _run_nowait(["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits", "-i", "0"], 2)
         if result.returncode != 0 and _smi_pcie:
             _smi_pcie = False  # older/newer nvidia-smi without these fields: keep the rest working
             return gpu_telemetry()
@@ -285,7 +322,12 @@ def process_rss_gib() -> float | None:
 def _torch_cuda():
     import sys
     torch = sys.modules.get("torch")  # never import torch just for statistics
-    if torch is None or not torch.cuda.is_available() or not torch.cuda.is_initialized():
+    if torch is None:
+        return None
+    try:
+        if not torch.cuda.is_available() or not torch.cuda.is_initialized():
+            return None
+    except AttributeError:  # torch is still being imported by another thread
         return None
     return torch
 
