@@ -238,3 +238,18 @@ def test_stress_refuses_without_cuda():
     from musicgen_ui import stress
     with pytest.raises(SystemExit, match="CUDA"):
         stress.main(["--seconds", "1"])
+
+
+def test_clean_shutdown_marks_running_song(tmp_path):
+    engine = TrackingMock(delay=5.0)
+    with make(tmp_path, engine) as c:
+        job_id = c.post("/api/jobs", json=SPEC).json()[0]["id"]
+        queued_id = c.post("/api/jobs", json=SPEC).json()[0]["id"]
+        for _ in range(1500):
+            if c.get(f"/api/jobs/{job_id}").json()["progress"]["stage"]:
+                break
+            time.sleep(0.02)
+    # TestClient exit = lifespan shutdown, like Ctrl+C
+    jobs = {p.parent.name: json.loads(p.read_text()) for p in (tmp_path / "library").glob("*/job.json")}
+    assert jobs[job_id]["status"] == "cancelled" and "Strg+C" in jobs[job_id]["error"]
+    assert jobs[queued_id]["status"] == "cancelled" and "bevor der Song" in jobs[queued_id]["error"]

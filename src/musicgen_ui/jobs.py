@@ -56,6 +56,7 @@ class JobQueue:
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._stopping = False
         self.library_dir.mkdir(parents=True, exist_ok=True)
         self._load_library()
 
@@ -91,6 +92,9 @@ class JobQueue:
             phase = line.split("phase=", 1)[1].split()[0] if "phase=" in line else "?"
             reading = line.split(phase, 1)[1].strip() if phase in line else ""
             message += f" – zuletzt in Phase „{phase}“ um {timestamp[11:]}. Letzte Messung: {reading}"
+            if phase in ("nar", "vae"):
+                message += (" · Waren Desktop/Browser eingefroren? Dann ⚙ Einstellungen → "
+                            "„Desktop flüssig halten“ nutzen (siehe README).")
         return message
 
     # -- public API ------------------------------------------------------------
@@ -100,6 +104,18 @@ class JobQueue:
             self._thread.start()
 
     def stop(self, timeout: float = 5) -> None:
+        """Clean shutdown (e.g. Ctrl+C): cancel the running song and say so, instead of
+        leaving it to look like a crash on the next start."""
+        self._stopping = True
+        with self._lock:
+            for job in self._jobs.values():
+                if job.status == "running":
+                    stage = (job.progress or {}).get("stage") or "?"
+                    job.error = f"Abgebrochen: Server wurde beendet (z.B. Strg+C) während Phase „{stage}“"
+                    self._cancel.add(job.id)  # stops AR/NAR loops so the GPU is freed quickly
+                    self._finish(job, "cancelled", job.error)
+                elif job.status == "queued":
+                    self._finish(job, "cancelled", "Abgebrochen: Server wurde beendet, bevor der Song starten konnte")
         if self._thread is not None:
             self._queue.put(None)
             self._thread.join(timeout)
@@ -207,8 +223,11 @@ class JobQueue:
                 result = self.manager.generate(request, self._job_dir(job.id), progress=progress,
                                                cancelled=lambda job_id=job.id: job_id in self._cancel)
             except Cancelled:
-                self._finish(job, "cancelled")
+                if job.status == "running":  # not already finalised by stop()
+                    self._finish(job, "cancelled")
             except Exception as exc:  # noqa: BLE001
+                if self._stopping:
+                    continue
                 log.exception("Job %s failed", job.id)
                 self._finish(job, "failed", describe_error(exc))
             else:

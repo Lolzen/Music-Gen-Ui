@@ -227,6 +227,9 @@ function jobCard(job) {
     button("Abbrechen", () => api(`/api/jobs/${job.id}/cancel`, { method: "POST" }).then(refreshJobs));
   } else {
     button("Als Vorlage", () => writeSpec({ ...job.spec, seed: job.request.seed, candidates: 1 }));
+    if (job.status === "failed" || job.status === "cancelled") {
+      button("Wiederholen", () => submit({ ...job.spec, seed: job.request.seed, candidates: 1 }));
+    }
     button("Neu würfeln", () => submit({ ...job.spec, seed: null, candidates: 1 }));
     if (r.has_score) button("Partitur", () => showScore(job.id));
     if (r.has_score) button("Partitur übernehmen", () => useScore(job));
