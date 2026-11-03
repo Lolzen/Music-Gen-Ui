@@ -224,6 +224,7 @@ def test_yue2_release_api_compat(monkeypatch, tmp_path):
     assert pipe.init_kwargs["offload_ar"] is True and pipe.init_kwargs["vae_core_frames"] == 512
     assert "on_progress" not in pipe.calls[0]
     assert ("audio", 50, 0) in events and result.duration_s == 12.5
+    assert "synthesize" not in engine._pipe.__dict__  # temporary phase markers removed again
     info = engine.info()
     assert info["low_vram_mode"] == "offload_ar" and info["yue2"]["stage_progress"] is False
 

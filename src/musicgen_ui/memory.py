@@ -110,12 +110,13 @@ class MemoryLog:
     Files: ``<data>/logs/memory-YYYY-MM-DD.log``, the newest ``keep`` are kept.
     """
 
-    def __init__(self, directory: Path, job: str, interval: float = 2.0, keep: int = 7,
-                 ram_reader=None, gpu_reader=None):
+    def __init__(self, directory: Path, job: str, interval: float = 1.0, keep: int = 7,
+                 ram_reader=None, gpu_reader=None, telemetry_reader=None):
         import time
         self.directory, self.job, self.interval, self.keep = Path(directory), job, interval, keep
         self.ram_reader = ram_reader or ram_status
         self.gpu_reader = gpu_reader or _gpu_status
+        self.telemetry_reader = telemetry_reader or gpu_telemetry
         self.stage = "start"
         self.path = self.directory / f"memory-{time.strftime('%Y-%m-%d')}.log"
         self._stop = threading.Event()
@@ -135,6 +136,9 @@ class MemoryLog:
         if gpu and gpu.get("cuda"):
             parts.append(f"VRAM {gpu['used_gib']:.1f}/{gpu['total_gib']:.1f} GB "
                          f"(PyTorch reserviert {gpu.get('process_reserved_gib', 0):.1f})")
+        telemetry = self.telemetry_reader()
+        if telemetry:
+            parts.append(telemetry)
         return "  ".join(parts)
 
     def write(self, text: str) -> None:
@@ -172,6 +176,46 @@ class MemoryLog:
 
     def __exit__(self, *exc):
         self._stop.set()
+
+
+_SMI_FIELDS = "power.draw,power.limit,temperature.gpu,clocks.sm,utilization.gpu,pstate"
+_smi_available: bool | None = None
+
+
+def gpu_telemetry() -> str | None:
+    """Power, temperature, clock and load via nvidia-smi (no root needed).
+
+    Shows whether a freeze coincides with a power/heat spike of the card."""
+    global _smi_available
+    if _smi_available is False:
+        return None
+    import shutil
+    import subprocess
+    if _smi_available is None:
+        _smi_available = shutil.which("nvidia-smi") is not None
+        if not _smi_available:
+            return None
+    try:
+        out = subprocess.run(["nvidia-smi", f"--query-gpu={_SMI_FIELDS}", "--format=csv,noheader,nounits", "-i", "0"],
+                             capture_output=True, text=True, timeout=2).stdout.strip()
+        power, limit, temp, clock, util, pstate = [v.strip() for v in out.split(",")]
+        return f"GPU {float(power):.0f}/{float(limit):.0f} W  {temp} °C  {clock} MHz  Last {util} %  {pstate}"
+    except Exception:  # noqa: BLE001 - telemetry is best effort
+        return None
+
+
+def last_log_line(directory: Path, job: str) -> str | None:
+    """Last memory-log line of a job (used to explain a song interrupted by a crash)."""
+    marker = f"job={job} "
+    for file in sorted(Path(directory).glob("memory-*.log"), reverse=True)[:2]:
+        try:
+            lines = file.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if marker in line:
+                return line
+    return None
 
 
 def _gpu_status() -> dict:

@@ -78,9 +78,20 @@ class JobQueue:
                 log.warning("Skipping unreadable %s: %s", path, exc)
                 continue
             if job.status in ACTIVE:  # server stopped mid-job
-                job.status, job.error = "failed", "Server wurde während der Generierung beendet"
+                job.status, job.error = "failed", self._interrupted_message(job.id)
                 self._save(job)
             self._jobs[job.id] = job
+
+    def _interrupted_message(self, job_id: str) -> str:
+        from .memory import last_log_line
+        message = "Unterbrochen: Server oder System wurde während der Generierung beendet"
+        line = last_log_line(self.manager.settings.data_dir / "logs", job_id)
+        if line:
+            timestamp = line[:19]
+            phase = line.split("phase=", 1)[1].split()[0] if "phase=" in line else "?"
+            reading = line.split(phase, 1)[1].strip() if phase in line else ""
+            message += f" – zuletzt in Phase „{phase}“ um {timestamp[11:]}. Letzte Messung: {reading}"
+        return message
 
     # -- public API ------------------------------------------------------------
     def start(self) -> None:

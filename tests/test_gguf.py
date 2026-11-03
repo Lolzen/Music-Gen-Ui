@@ -244,6 +244,8 @@ def test_engine_generates_song_from_gguf(tiny_lm, tiny_vae, tmp_path, mode):
     result = engine.generate(request, tmp_path / "out", progress=lambda *e: events.append(e), cancelled=lambda: False)
     assert result.audio_path.is_file() and result.sample_rate == 48000 and result.duration_s > 0
     assert any(e[0] == "gguf" for e in events)
+    stages = [e[0] for e in events]
+    assert "nar" in stages and "vae" in stages and stages.index("nar") < stages.index("vae")  # phase markers
     info = engine.info()
     assert info["gguf"] and info["gguf_report"]["quantized_modules"] > 0
     engine.unload()

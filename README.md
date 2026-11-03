@@ -312,6 +312,7 @@ Umgebungsvariablen überschreiben die gespeicherten Einstellungen. Das ist prakt
 | Banner „YuE2 ist nicht installiert“ | `./install.sh` (ohne `--mock`) ausführen |
 | „Grafikspeicher voll“ / OutOfMemory | Das Modell wird automatisch entladen. Dann *Offload* einschalten, ggf. *FP8*, andere GPU-Programme schließen |
 | System friert ein / muss neu gestartet werden | Siehe [Speicher & Offload](#speicher--offload) |
+| System friert ein, obwohl RAM/VRAM laut Protokoll frei sind (oft beim Wechsel zu `nar`) | Wahrscheinlich Grafikkarte/Treiber statt Speicher, siehe [Absturz ohne vollen Speicher](#absturz-ohne-vollen-speicher) |
 | `yue2 doctor` meldet Fehler | Treiber/CUDA-Version prüfen (`nvidia-smi`), notfalls `./install.sh --cuda cu126` |
 | Port belegt | `./start.sh --port 7861` |
 | `unexpected keyword argument 'low_vram'` o.ä. | Behoben: Die App erkennt jetzt die installierte YuE2-Version (siehe unten) |
@@ -328,6 +329,22 @@ Standard ist das offizielle Release **`yue2-v0.1.6`**. Neuere Commits auf YuE2-`
 
 Die neuere Version installierst du mit `./install.sh --yue2-ref main`. Das ist unveröffentlichter Code, also nur bei Bedarf nutzen.
 Zurück zum Release geht es mit einem normalen `./install.sh`. Welche Version läuft, zeigt der Tooltip des Modellstatus oben links.
+
+### Absturz ohne vollen Speicher
+
+Bleibt im Speicher-Protokoll genug RAM und VRAM frei und friert das System trotzdem ein, liegt die Ursache fast immer unterhalb der App: beim Grafiktreiber oder der Grafikkarte.
+Ein normaler Prozess kann Linux sonst nicht einfrieren. Besonders verdächtig ist der Wechsel von `audio` (Komponieren, wenig Last) zu `nar` (Klangsynthese, Volllast): An dieser Stelle zieht eine 4090 kurz deutlich mehr als 450 W.
+
+Das Protokoll zeigt jede Sekunde Leistung, Temperatur, Takt und Last der Karte (`GPU 312/450 W  61 °C …`). Ein abgebrochener Song nennt nach dem Neustart die Phase und die letzte Messung.
+
+**Test: Leistungsgrenze senken.** Den gleichen Song (gleicher Seed) noch einmal erzeugen:
+
+```bash
+sudo nvidia-smi -pl 300
+```
+
+Läuft er jetzt durch, waren es Lastspitzen. Dann Netzteil und 12VHPWR-Stecker prüfen oder dauerhaft mit Limit arbeiten (bei 350 W ist die 4090 nur wenig langsamer).
+Nach einem Neustart gilt wieder das Standardlimit. Zurücksetzen geht auch mit `sudo nvidia-smi -pl 450`.
 
 ## Entwicklung
 

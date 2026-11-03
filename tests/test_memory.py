@@ -196,3 +196,29 @@ def test_memory_log_sampling_and_prune(tmp_path):
     text = mlog.path.read_text()
     assert "phase=audio" in text and "RAM frei 5.0/32.0 GB" in text and "VRAM 20.0/24.0 GB" in text
     assert len(list(tmp_path.glob("memory-*.log"))) <= 4  # 3 kept + today's
+
+
+def test_interrupted_job_reports_last_phase(tmp_path):
+    from musicgen_ui.jobs import JobQueue
+    from musicgen_ui.runtime import EngineManager
+    settings = Settings(engine="mock", data_dir=tmp_path, plugin_dirs=[])
+    lib = tmp_path / "library" / "song-1"
+    lib.mkdir(parents=True)
+    (lib / "job.json").write_text(json.dumps({"id": "song-1", "group": "song-1", "title": "x", "spec": {},
+                                              "request": {}, "status": "running"}))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "memory-2026-11-03.log").write_text(
+        "2026-11-03 15:48:23  job=song-1  phase=audio     RAM frei 23.7/31.2 GB\n"
+        "2026-11-03 15:48:25  job=song-1  phase=nar       RAM frei 21.6/31.2 GB  GPU 438/450 W  71 °C\n"
+        "2026-11-03 15:49:00  job=other  phase=vae       RAM frei 1.0/31.2 GB\n")
+    queue = JobQueue(EngineManager(settings, MockEngine(0)), tmp_path / "library")
+    error = queue.get("song-1").error
+    assert "Phase „nar“ um 15:48:25" in error and "438/450 W" in error
+
+
+def test_telemetry_line_in_memory_log(tmp_path):
+    with memory.MemoryLog(tmp_path, "s", interval=0.02, ram_reader=lambda: None, gpu_reader=lambda: None,
+                          telemetry_reader=lambda: "GPU 312/450 W  61 °C") as mlog:
+        time.sleep(0.08)
+    assert "GPU 312/450 W" in mlog.path.read_text()

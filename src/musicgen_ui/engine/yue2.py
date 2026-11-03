@@ -220,6 +220,20 @@ class YuE2Engine:
             raise
         self._pipe = pipe
 
+    def _mark_phases(self, progress: ProgressFn) -> dict:
+        pipe, wrapped = self._pipe, {}
+        for name, stage in (("synthesize", "nar"), ("decode", "vae")):
+            original = getattr(pipe, name, None)
+            if original is None:
+                continue
+
+            def marked(*args, _original=original, _stage=stage, **kwargs):
+                progress(_stage, 0, 0)
+                return _original(*args, **kwargs)
+            setattr(pipe, name, marked)  # instance attribute, removed after the song
+            wrapped[name] = original
+        return wrapped
+
     # -- LoRA --------------------------------------------------------------------
     def _adapter(self, path: str, dims: dict):
         from ..lora import read_adapter
@@ -274,12 +288,20 @@ class YuE2Engine:
 
         self._apply_loras(request.loras or [], progress)
         call = {**request.engine_kwargs(), "cancelled": cancelled, "on_token": on_token}
+        markers = {}
         if self.api.stage_progress:
             call["on_progress"] = lambda stage, done, total: progress(stage, done, total)
+        else:
+            # The release reports no synthesis/decoding progress: mark the phase changes
+            # (the memory log then shows exactly where a crash happened).
+            markers = self._mark_phases(progress)
         try:
             song = self._pipe(**call)
         except InterruptedError as exc:
             raise Cancelled() from exc
+        finally:
+            for name in markers:
+                self._pipe.__dict__.pop(name, None)
         result = song.save_artifacts(out_dir)
         score = out_dir / "score.abc"
         return EngineResult(
