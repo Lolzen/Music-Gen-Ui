@@ -52,7 +52,7 @@ class EngineManager:
         return {
             "engine": self.engine.name,
             "configured": self.settings.engine,
-            "state": state,  # unloaded | loading | ready | busy | error
+            "state": state,  # unloaded | loading | ready | busy | error | training
             "message": self._message,
             "progress": self._progress if state == "loading" else None,
             "since": self._since,
@@ -102,6 +102,20 @@ class EngineManager:
             self._set("ready" if self.engine.loaded else "unloaded")
         finally:
             self._lock.release()
+
+    def reserve(self, state: str, message: str) -> None:
+        """Take the GPU for something else (LoRA training): unload the model and block generation."""
+        self._acquire("Training starten")
+        try:
+            self.engine.unload()
+        except Exception:
+            self._lock.release()
+            raise
+        self._set(state, message)
+
+    def release_reservation(self) -> None:
+        self._set("ready" if self.engine.loaded else "unloaded")
+        self._lock.release()
 
     def configure(self, values: dict, *, persist: bool = True) -> None:
         """Apply new settings; recreates the engine if needed (raises ValueError/Busy)."""

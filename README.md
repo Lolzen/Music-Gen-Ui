@@ -164,7 +164,41 @@ hf download scragnog/YuE2-GGUF yue2-vae-standard-f32.gguf --local-dir models/vae
 Nicht unterstützt sind GGUFs in anderen Layouts (z.B. LattifAI/EdgeSpeak) und Modelle des Vorgängers YuE v1. Sie erscheinen ausgegraut.
 Die Entpack-Routinen stammen aus [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (Apache-2.0, siehe `licenses/`).
 
-## Speicher & Offload
+## LoRAs verwenden
+
+LoRA-Dateien gehören nach `models/lora/` (auch in Unterordner). Im Song-Formular wählst du sie unter **LoRAs** aus, jede mit eigener Stärke.
+
+Unterstützt werden diese Formate:
+- **Mothersuperior / Music-Gen-UI:** z.B. eigene Artist-LoRAs oder `nar_lora_joint_v9`
+- **ComfyUI-Layout:** Starnodes-Trainer, lym00, `*_comfyui`
+- **Starnodes intern**
+
+`.pt`-Dateien werden nur geladen, wenn sie keinen ausführbaren Code enthalten. Im Zweifel die `.safetensors`-Version nehmen.
+
+Die Abzeichen zeigen, welchen Teil von YuE2 eine LoRA verändert:
+- **Komposition:** Melodie und Aufbau, z.B. Artist-LoRAs
+- **Klang:** nur den Sound
+
+Bei Kompositions-LoRAs wird das Trigger-Wort in den Stil eingefügt und der Plan-Modus auf „off“ gestellt (so wurden sie trainiert).
+LoRAs werden direkt in die Gewichte eingerechnet und beim Wechsel exakt zurückgesetzt. Mit GGUF-Modellen funktionieren sie ebenso.
+
+## Eigene Artist-LoRA trainieren
+
+Tab **LoRA-Training**. Die App trainiert den Kompositions-Teil von YuE2 auf deine eigenen Songs. Das Verfahren und den Audio→Token-Encoder hat [Mothersuperior](https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4) veröffentlicht (CC BY-NC 4.0, nur nicht-kommerziell).
+
+1. **Projekt anlegen:** Name, Trigger-Wort (ein Fantasiewort, z.B. `xyzq`) und eine Klang-Beschreibung
+2. **Songs hochladen:** 10–30 Songs (FLAC/WAV/MP3), je Song die **vollständigen** Lyrics mit `[Verse]`/`[Chorus]` …; gekürzte Lyrics verderben die Song-Struktur
+3. **Einstellungen:** Die Standardwerte entsprechen dem Original (1600 Schritte, Rang 64, halb eigene Songs, halb Regularisierung).
+   Nicht länger trainieren: Ab ca. 1500 Schritten lernt das Modell die Songs auswendig.
+4. **Rechte bestätigen**, dann **Training starten**
+   - Die Song-Generierung pausiert so lange, weil die GPU belegt ist (ca. 14–18 GB).
+   - Beim ersten Mal werden MERT (~1 GB), der Encoder und das Regularisierungs-Paket (~100 MB) heruntergeladen.
+5. **Checkpoints probehören:** Ab Schritt 600 entsteht alle 200 Schritte ein Checkpoint.
+   - „Alle Checkpoints probehören“ erzeugt mit jedem denselben Song (gleicher Seed).
+   - Den besten übernimmst du mit **Als LoRA übernehmen**. Der Autor fand Schritt ~800 am besten.
+6. **Klang-LoRA:** Die passende Klang-LoRA (`nar_lora_joint_v9`) lässt sich mit einem Klick herunterladen und wird beim Probehören automatisch mitbenutzt.
+
+
 
 Ein Song mit YuE2 braucht zwei Arten Speicher:
 - **VRAM:** rund 20 GB in der Spitze
@@ -316,6 +350,9 @@ src/musicgen_ui/
   jobs.py         Warteschlange + Bibliothek
   download.py     Modell-Download (CLI + Fortschritt)
   plugins/        Plugin-Manager, Lua-Laufzeit
+  lora.py         LoRA-Formate lesen, einrechnen, exakt zurücksetzen
+  gguf_support/   GGUF-Loader + Entpack-Kernels
+  training/       Artist-LoRA-Training (Pipeline, Worker-Prozess, Projekte)
   server.py       FastAPI-Routen (/api/...)
   web/            Oberfläche (HTML/CSS/JS, kein Build)
 ```

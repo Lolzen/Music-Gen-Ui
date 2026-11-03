@@ -77,9 +77,9 @@ else
   else
     echo "Hinweis: nvidia-smi nicht gefunden – ist der NVIDIA-Treiber installiert?" >&2
   fi
-  step "Installiere PyTorch $TORCH_VERSION ($CUDA)"
-  python -m pip install "torch==$TORCH_VERSION" --index-url "https://download.pytorch.org/whl/$CUDA"
-  EXTRAS="yue2,lua"
+  step "Installiere PyTorch + torchaudio $TORCH_VERSION ($CUDA)"
+  python -m pip install "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" --index-url "https://download.pytorch.org/whl/$CUDA"
+  EXTRAS="yue2,lua,train"
   [[ "$FAST" == 1 ]] && EXTRAS="$EXTRAS,fast"
   step "Installiere Music-Gen-UI + YuE2 ($EXTRAS)"
   python -m pip install -e ".[$EXTRAS]"

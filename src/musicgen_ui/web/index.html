@@ -8,6 +8,7 @@
   <!-- Sheet-music rendering for the YuE2 score (optional; the UI works without it). -->
   <script src="https://cdn.jsdelivr.net/npm/abcjs@6.4.4/dist/abcjs-basic-min.js" defer></script>
   <script src="app.js" type="module"></script>
+  <script src="training.js" type="module"></script>
 </head>
 <body>
 <header class="topbar">
@@ -22,6 +23,10 @@
   <button type="button" id="open-settings" class="ghost" title="Einstellungen">⚙ Einstellungen</button>
 </header>
 <div id="banner" class="banner" hidden></div>
+<nav class="tabs" aria-label="Bereiche">
+  <button type="button" data-tab="songs" class="active">Songs</button>
+  <button type="button" data-tab="training">LoRA-Training</button>
+</nav>
 <section class="modelbar" aria-label="Modell-Auswahl">
   <label>Modell <select id="pick-checkpoint"></select></label>
   <label>VAE <select id="pick-vae"></select></label>
@@ -29,7 +34,7 @@
   <span id="model-note" class="muted"></span>
 </section>
 
-<main>
+<main id="songs-view">
   <form id="song-form" class="panel" autocomplete="off">
     <div class="row">
       <label class="grow">Vorlage
@@ -131,6 +136,23 @@
     <div id="jobs"></div>
   </section>
 </main>
+
+<section id="training-view" class="training" hidden>
+  <div class="panel">
+    <h2>LoRA-Projekte</h2>
+    <div id="t-projects"></div>
+    <form id="t-new" class="tnew" autocomplete="off">
+      <h3>Neues Projekt</h3>
+      <label>Name <input name="name" required maxlength="80" placeholder="z.B. Meine Band 2024"></label>
+      <label>Trigger-Wort <input name="trigger" required pattern="[A-Za-z0-9_\-]{2,40}" placeholder="Fantasiewort, z.B. xyzq"></label>
+      <label>Klang-Beschreibung
+        <textarea name="description" rows="2" placeholder="z.B. dark synth pop, breathy female vocal, analog synths, wide reverb"></textarea></label>
+      <button class="primary">Anlegen</button>
+      <p class="hint">Das Trigger-Wort ist ein Wort, das es sonst nicht gibt. Später schreibst du es in den Stil-Text, um die LoRA „aufzurufen“.</p>
+    </form>
+  </div>
+  <div id="t-detail" class="panel"><p class="muted">Projekt wählen oder neu anlegen.</p></div>
+</section>
 
 <dialog id="settings-dialog">
   <form id="settings-form" method="dialog">

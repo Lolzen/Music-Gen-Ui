@@ -125,3 +125,27 @@ fieldset.memory label.check input { margin-top: 0.25rem; }
 .lora .lora-strength { width: 8rem; }
 .lora .lora-value { width: 2.6rem; font-size: 0.8rem; color: var(--muted); }
 .halfbadge { font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--chip); margin-left: 0.2rem; }
+
+/* --- tabs + training ------------------------------------------------------ */
+.tabs { display: flex; gap: 0.3rem; padding: 0 1rem 0.8rem; }
+.tabs button { border-radius: 999px; }
+.tabs button.active { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.training { display: grid; grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 2fr); gap: 1rem; padding: 0 1rem 2rem; align-items: start; }
+@media (max-width: 900px) { .training { grid-template-columns: 1fr; } }
+.tnew { display: grid; gap: 0.5rem; margin-top: 1rem; border-top: 1px dashed var(--line); padding-top: 0.6rem; }
+.tnew h3, .tsec h3 { font-size: 0.95rem; margin: 0.2rem 0; }
+.tproj { display: block; width: 100%; text-align: left; margin-bottom: 0.4rem; }
+.tproj.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tproj small { color: var(--muted); display: block; }
+.tsec { border-top: 1px solid var(--line); padding-top: 0.6rem; margin-top: 0.8rem; }
+.tsong { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem; margin-bottom: 0.5rem; }
+.tsong .row { align-items: center; }
+.tsong textarea { margin-top: 0.3rem; }
+.tchart { width: 100%; height: 150px; background: var(--bg); border-radius: 6px; }
+.tchart .train { fill: none; stroke: var(--muted); stroke-width: 1; opacity: 0.6; }
+.tchart .artist { fill: none; stroke: var(--accent); stroke-width: 2; }
+.tchart .minted { fill: none; stroke: var(--pred); stroke-width: 2; }
+.tlegend span { margin-right: 0.8rem; font-size: 0.78rem; }
+.tlog { white-space: pre-wrap; max-height: 12rem; overflow: auto; background: var(--bg); padding: 0.5rem; border-radius: 6px; font-size: 0.75rem; }
+.tckpt { display: grid; grid-template-columns: 1fr auto auto auto; gap: 0.4rem; align-items: center; padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+.problems li { color: var(--warn); }

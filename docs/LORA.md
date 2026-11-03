@@ -37,23 +37,26 @@ Atomtan liefert zusätzlich eine `lora.json` mit Trigger-Wort und empfohlenen Ge
 
 **Abhängigkeiten:** Manche LoRAs setzen ein *Begleit-LoRA* voraus. Die lym00-LoRAs brauchen z.B. `nar_lora_joint_v9_comfyui` von Mothersuperior mit Stärke 1.0. Der Loader muss deshalb mehrere LoRAs gleichzeitig können.
 
-## Loader-Design (Roadmap Phase 2)
+## Loader (umgesetzt: `src/musicgen_ui/lora.py`)
 
-1. **Erkennen:** Header und Schlüssel lesen und das Format bestimmen. Unbekannte Formate werden mit Begründung abgelehnt, nicht stillschweigend ignoriert.
-2. **Umrechnen:** native Namen → m-a-p-Modulnamen, fusionierte Matrizen aufteilen, Skalierung je Format.
-3. **Anwenden:** Die Deltas werden *in place* in die Gewichte addiert, mit getrennter Stärke für Planer und Akustik.
-   - Die Originale der betroffenen Tensoren werden auf der CPU gesichert. Entfernen stellt sie exakt wieder her, ohne zu subtrahieren und ohne Rundungsfehler.
-   - In-place bleibt kompatibel mit CUDA-Graphs und Low-VRAM-Auslagerung, weil die Tensoren dieselben bleiben.
-   - Das Basismodell wird nicht neu geladen. Ein Wechsel kostet Sekunden.
-4. **Pro Song:** Gewählte LoRAs und Stärken werden im Job gespeichert. Der Worker setzt sie vor dem Song und nur, wenn sie sich ändern.
-5. **UI:** Die Dateien liegen in `data/loras/`. Die UI zeigt pro LoRA Hälften, Rang, Trigger-Wort und Basis-Revision.
-   Sie fügt das Trigger-Wort in den Stil ein und bietet empfohlene Einstellungen aus `lora.json` an.
+- **Formate:** Mothersuperior/Music-Gen-UI (`layers.N.[nar_]self_attn.q_proj.lora_A|B`, NAR mit vollem `vae2llm`/`llm2vae`; `.pt` nur über sicheres Laden), ComfyUI-Layout (fusionierte `qkv_proj`/`gate_up_proj` werden anhand der Modellmaße zerlegt, `alpha`, `.diff`/`.diff_b`) und Starnodes intern.
+- **Anwenden:** Deltas werden vor jedem Song direkt in die Gewichte eingerechnet, aber nur, wenn sich die Auswahl geändert hat. Das ist kompatibel mit CUDA-Graphs, FP8 (wird pro Song aus den aktuellen Gewichten gebaut) und Offload.
+- **Entfernen:** Die betroffenen Tensoren werden bit-genau aus der Modellquelle neu gelesen (HF-safetensors per mmap oder GGUF). Es werden keine RAM-Kopien vorgehalten.
+- **GGUF:** Gepackte Schichten (`QuantLinear`) bekommen die LoRA als Seitenpfad (`x·Aᵀ·Bᵀ`).
+- **Pro Song:** Gewählte LoRAs und Stärken werden mit dem Song gespeichert. Ein Trigger-Wort und empfohlene Einstellungen kommen aus dem Header oder aus `lora.json` / `<datei>.json`.
 
-**Risiken / Einschränkungen**
-- YuE2 lädt das Modell intern und lazy (`pipe._model`). Der Loader hängt sich an diese private Stelle. Deshalb pinnen wir die YuE2-Version (0.1.6) und haben einen Test, der bei Änderungen anschlägt.
-- **FP8-Modus:** Er baut die Planer-Layer aus den BF16-Originalen neu auf. Planer-LoRAs und FP8 vertragen sich daher zunächst nicht, und die UI warnt. Akustik-LoRAs sind unbetroffen.
-- **Basis-Revision:** Die LoRAs wurden auf `m-a-p/YuE2-3B` Revision `1a96eca` trainiert. Weicht die Revision ab, kommt eine Warnung.
-- **Lizenzen:** Die meisten LoRAs sind CC BY-NC (nicht kommerziell). Einige Community-LoRAs bilden reale Künstler nach. Das ist rechtlich heikel, und wir liefern keine solchen LoRAs mit.
+## Training (umgesetzt: `src/musicgen_ui/training/`)
+
+Das Verfahren folgt dem von Mothersuperior veröffentlichten Ablauf (nachgebaut, nicht kopiert):
+
+1. Audio → MERT-v2-FullSong, Schicht 20, auf 25 Hz interpoliert
+2. → Audio→Token-Encoder (8-Layer-Transformer, Versionen v4/v5/v8/v9) → YuE2-Semantik-Tokens
+3. Datensatz: Stil `"<trigger>, in the style of <trigger>. <Beschreibung>"` + vollständige Lyrics, ohne Partitur (`cot=off`), 50/50 gemischt mit dem Regularisierungs-Paket (4.732 YuE2-Songs)
+4. LoRA Rang 64 auf den AR-Projektionen (q/k/v/o, gate/up/down); AdamW (0.9/0.95), 50 Schritte Warm-up, Cosine bis 0,2·LR, Gradient-Checkpointing, max. 12.288 Tokens pro Sequenz
+5. Checkpoints im Mothersuperior-Layout. Der eigene Loader und `ckpt_io.py` des Autors lesen sie beide.
+
+Die Lyric-Cursor-Hilfsaufgabe des Originals (Demucs + MMS-Alignment) ist noch nicht eingebaut. Sie ist laut Autor optional.
+Das Training läuft als eigener Prozess. Ein Stopp speichert den letzten Stand; danach ist die GPU wieder vollständig frei.
 
 ## Bekannte LoRAs (Auswahl)
 
@@ -66,9 +69,9 @@ Atomtan liefert zusätzlich eine `lora.json` mit Trigger-Wort und empfohlenen Ge
 | Mothersuperior `ar_lora_inst` | Instrumental | AR | braucht `cot=full` |
 | [lym00/comfyui_yue2_lora](https://huggingface.co/lym00/comfyui_yue2_lora) | Künstler-Stile | AR + NAR | je 1,9 GB, braucht Begleit-LoRA |
 
-**Für die Stimm-Garantie** gibt es noch keine passenden LoRAs, etwa „immer weibliche Stimme“. Die müssten wir selbst trainieren (Phase 6).
+**Für die Stimm-Garantie** gibt es noch keine passenden LoRAs, etwa „immer weibliche Stimme“. Mit dem eingebauten Training lassen sie sich jetzt selbst erstellen, z.B. aus Songs mit nur weiblichem Gesang.
 
-## Training (Roadmap Phase 6)
+## Andere Trainer
 
 - [Starnodes ComfyUI-YuE2-Trainer](https://github.com/Starnodes2024/ComfyUI-YuE2-Trainer) (MIT): nur Akustik
   - 5–30 Songs, 24 GB VRAM empfohlen, Rang 32, ca. 1–3 s pro Schritt auf einer 4090, 3000 Schritte

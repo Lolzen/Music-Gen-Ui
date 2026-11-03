@@ -23,7 +23,9 @@ yue2 = ["yue2-infer @ git+https://github.com/multimodal-art-projection/YuE@yue2-
 fast = ["yue2-infer[fast] @ git+https://github.com/multimodal-art-projection/YuE@yue2-v0.1.6"]
 # Optional Lua plugin runtime.
 lua = ["lupa>=2.0"]
-dev = ["pytest>=8", "httpx>=0.27", "lupa>=2.0", "gguf>=0.17"]
+# LoRA training (MERT features, resampling). torchaudio is installed by install.sh from the torch index.
+train = ["scipy>=1.11", "soundfile>=0.12"]
+dev = ["pytest>=8", "httpx>=0.27", "lupa>=2.0", "gguf>=0.17", "scipy>=1.11"]
 
 [project.scripts]
 music-gen-ui = "musicgen_ui.__main__:main"

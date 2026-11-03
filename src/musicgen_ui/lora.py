@@ -23,7 +23,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-import torch
+try:  # the catalog only needs inspect_adapter(), which works without torch
+    import torch
+except ImportError:  # pragma: no cover - UI-only install
+    torch = None
 
 ATTN = ("q_proj", "k_proj", "v_proj", "o_proj")
 MLP = ("gate_proj", "up_proj", "down_proj")
@@ -221,7 +224,7 @@ def inspect_adapter(path: Path) -> dict:
 
 
 # ---------------------------------------------------------------- applying
-SourceFn = Callable[[str], torch.Tensor]  # HF param path -> original tensor (CPU)
+SourceFn = Callable[[str], "torch.Tensor"]  # HF param path -> original tensor (CPU)
 
 
 class LoraState:

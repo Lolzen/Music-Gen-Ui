@@ -295,8 +295,12 @@ function renderEngine(e) {
   const box = $("#engine-status");
   const label = $("#engine-label");
   box.className = `status ${e.engine === "mock" ? "mock" : e.state}`;
-  const STATE = { unloaded: "nicht geladen", loading: "lädt", ready: "bereit", busy: "generiert", error: "Fehler" };
-  if (e.engine === "mock") {
+  const STATE = { unloaded: "nicht geladen", loading: "lädt", ready: "bereit", busy: "generiert", error: "Fehler",
+    training: "LoRA-Training läuft (Songs warten)" };
+  if (e.state === "training") {
+    box.className = "status busy";
+    label.textContent = e.message || STATE.training;
+  } else if (e.engine === "mock") {
     label.textContent = "Mock-Engine · Platzhalter-Audio";
   } else {
     const mode = [e.info.gguf ? `GGUF ${{ bf16: "BF16", balanced: "ausgewogen", max: "maximal" }[e.info.gguf_mode]}` : null,
@@ -673,5 +677,22 @@ async function init() {
   schedulePreview();
   refreshJobs();
 }
+
+// Shared with training.js
+window.MGU = {
+  api,
+  submit: (spec) => submit(spec),
+  writeSpec: (spec) => writeSpec(spec),
+  reloadModels: () => loadModels(),
+  showTab: (name) => showTab(name),
+};
+
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  $("#songs-view").hidden = name !== "songs";
+  $("#training-view").hidden = name !== "training";
+  window.dispatchEvent(new CustomEvent("mgu:tab", { detail: name }));
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
 init().catch((err) => { $("#engine-label").textContent = `Server nicht erreichbar: ${err.message}`; });

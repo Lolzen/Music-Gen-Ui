@@ -50,10 +50,10 @@ Die Vorschau zeigt **genau** den Text, den das Modell bekommt. Nur so lassen sic
 
 YuE2 akzeptiert kein Referenz-Audio. Stimmen werden deshalb über *Stem-Separation → Singing-Voice-Conversion → Remix* angepasst (Phase 4). Details in [FEATURES.md](FEATURES.md).
 
-## E8 – LoRA-Training als eigenes Projekt
+## E8 – LoRA-Training in der App (revidiert)
 
-Es gibt keinen offiziellen Trainingscode. Datenvorbereitung und Training sind ein eigenes, GPU-intensives Projekt mit anderem Lebenszyklus.
-Diese App lädt höchstens fertige Adapter.
+Ursprünglich war das Training als eigenes Projekt geplant, weil es keinen offiziellen Trainingscode und keinen Audio→Token-Encoder gab.
+Seit Mothersuperior beides veröffentlicht hat, ist das Artist-LoRA-Training in die App eingebaut (siehe E11).
 
 ## E9 – Installation über Conda
 
@@ -72,4 +72,12 @@ GGUF-Dateien (HOT-Step-Layout) werden in die offizielle PyTorch-Pipeline geladen
   Der Modus „Maximal“ packt alles und erzwingt `torch-eager`.
 - Vorteil: Alle Funktionen der App (Offload, RAM-Notbremse, Protokoll, später LoRA) gelten auch für GGUF, und es ist nichts zusätzlich zu installieren.
 - HOT-Step-CPP (schnelle GGML-Kernels, eigene LoRA-Unterstützung) bleibt als optionale zweite Engine geplant, falls die Geschwindigkeit nicht reicht.
+
+## E11 – Artist-LoRA-Training: nachgebaut, eigener Prozess, sicheres Laden
+
+- Die Skripte von Mothersuperior sind Forschungscode mit fest verdrahteten Pfaden und stehen unter CC BY-NC. Sie werden **nicht** übernommen.
+  Das Verfahren ist in `training/pipeline.py` nachgebaut; Encoder und Regularisierungs-Paket werden zur Laufzeit von Hugging Face geladen.
+- Das Training läuft als **eigener Prozess**. Er belegt die GPU exklusiv (die Generierung wartet), lässt sich sauber stoppen und gibt danach allen Speicher frei.
+- `.pt`-Dateien (Regularisierungs-Paket, LoRA-Checkpoints) werden nur mit `weights_only` geladen; zusätzlich erlaubt sind ausschließlich numpy-Typen. Pickles mit Code werden abgelehnt.
+- Vor dem Start ist eine Bestätigung nötig: Rechte an den Aufnahmen bzw. Einwilligung der Künstler*innen.
 

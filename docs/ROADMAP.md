@@ -53,10 +53,10 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 - [ ] GGUF auf der RTX 4090 messen: Tempo und VRAM pro Modus und Quantisierung
 - [ ] Optional: HOT-Step-CPP als zweite Engine (schnelle GGML-Kernels)
 
-## Phase 2 – LoRA laden
-- [ ] LoRA-Ordner `data/loras/`, Liste in der UI, mehrere LoRAs mit eigener Stärke pro Song
-- [ ] Loader für die Community-Formate (siehe [LORA.md](LORA.md)), Anwendung ohne Neuladen des Basismodells
-- [ ] Verwendete LoRAs im Song speichern (Reproduzierbarkeit)
+## Phase 2 – LoRA laden ✅
+- [x] `models/lora/`, Picker im Song-Formular, mehrere LoRAs mit eigener Stärke pro Song
+- [x] Loader für Mothersuperior-, ComfyUI- und Starnodes-Formate, ohne das Basismodell neu zu laden, exaktes Zurücksetzen
+- [x] Verwendete LoRAs werden mit dem Song gespeichert
 
 ## Phase 3 – Partitur-Workflow (YuE2s Stärke)
 - [ ] „Nur planen“: Partitur erzeugen, **ohne** Audio zu rendern (schnell)
@@ -80,10 +80,13 @@ Orientierung an Music Maker: Spuren untereinander, Clips per Drag & Drop.
 - [ ] Singing-Voice-Conversion (zero-shot und/oder trainiert) als Nachbearbeitung (Stufe 4)
 - [ ] Stimmen-Zuordnung pro Abschnitt anwenden (`[Chorus @duo]`) über Timeline-Abschnitte
 
-## Phase 6 – LoRA-Training
-- [ ] Datensatz aus eigenen Titeln (Audio → Tokens per Community-Encoder, Partitur per SheetSage2, Lyrics)
-- [ ] Training starten/überwachen aus der UI (läuft als eigener Prozess, blockiert die Generierung)
-- [ ] Ziel u.a.: Stimm-/Timbre-LoRAs für Stufe 2
+## Phase 6 – LoRA-Training (erste Version ✅)
+- [x] Artist-LoRA aus eigenen Songs: MERT → Mothersuperior-Encoder → Tokens, Regularisierung, AR-LoRA (eigener Prozess)
+- [x] UI: Projekte, Upload, Lyrics, Einwilligung, Fortschritt, Loss-Kurve, Checkpoints, Probe-Songs, Übernehmen
+- [ ] Erster echter Lauf auf der RTX 4090 (Dauer, VRAM, Qualität nach Gehör)
+- [ ] Lyric-Cursor-Hilfsaufgabe (Demucs + MMS-Alignment), optional
+- [ ] Klang-LoRA (NAR) auf eigene Aufnahmen nachtrainieren (`joint.py`-Schritt)
+- [ ] Ziel u.a.: Stimm-/Timbre-LoRAs für die Stimm-Garantie (Stufe 2)
 
 ## Später
 - [ ] Lua-API für Batch-Workflows (`mgu.submit`)
