@@ -15,7 +15,7 @@ from .models import YUE2_DEFAULTS, SongSpec
 from .plugins import PluginManager
 from .prompting import KNOWN_SECTIONS
 from .runtime import Busy, EngineManager
-from .memory import ram_status
+from .memory import latest_log, ram_status
 from .system import gpu_status
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -77,6 +77,12 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     def put_settings(values: dict = Body(...)):
         guarded(lambda: manager.configure(values))
         return {"values": settings.editable(), "engine": manager.status()}
+
+    @app.get("/api/logs/memory")
+    def memory_log():
+        name, text = latest_log(settings.data_dir / "logs")
+        header = f"# {name}\n" if name else "# Noch kein Speicher-Protokoll vorhanden\n"
+        return PlainTextResponse(header + text)
 
     @app.post("/api/engine/load")
     def load():

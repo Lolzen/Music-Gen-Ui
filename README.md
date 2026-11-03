@@ -137,14 +137,38 @@ Läuft der VRAM trotzdem voll, entlädt die App das Modell automatisch. Der näc
 3. Bei wenig RAM (≤ 16 GB): *Modell zwischen Songs → entladen*
 4. Reicht das nicht: *Offload* einschalten, danach *FP8*
 
-**Ursache herausfinden** (nach einem Neustart, bezieht sich auf den vorherigen Systemstart):
+**Ursache herausfinden** (funktioniert mit runit, OpenRC, systemd …):
 
-```bash
-journalctl -k -b -1 | grep -i -E "out of memory|oom-kill|NVRM|Xid"
-```
+1. **Speicher-Protokoll der App.** Während jedes Songs schreibt die App alle 2 s RAM, Swap, VRAM und die aktuelle Phase nach `data/logs/memory-JJJJ-MM-TT.log`.
+   Jede Zeile wird sofort auf die Platte geschrieben und übersteht deshalb auch einen Zwangsneustart.
+   In der UI: ⚙ Einstellungen → „Speicher-Protokoll“. Im Terminal:
 
-- `oom-kill` / `Out of memory`: Der Arbeitsspeicher war voll. *Entladen* und die RAM-Notbremse helfen.
-- `NVRM` / `Xid`: ein Problem mit Grafiktreiber oder VRAM. VRAM-Reserve erhöhen, *Offload* oder *FP8* wählen.
+   ```bash
+   tail -n 40 "$(ls -t data/logs/memory-*.log | head -n 1)"
+   ```
+
+   - „RAM frei“ sinkt gegen 0 und Swap steigt: Der Arbeitsspeicher war voll. *Modell zwischen Songs → entladen* wählen, RAM-Notbremse an lassen.
+   - „VRAM“ steht bei voll: Der Grafikspeicher war voll. VRAM-Reserve erhöhen, *Offload* oder *FP8* wählen.
+   - Die letzte Zeile zeigt, in welcher Phase es passiert ist: `score`, `audio`, `nar`, `vae` oder `danach`.
+
+2. **Kernel-Meldungen**, falls ein Log-Dienst läuft. Unter runit ist das z.B. `socklog` (Void) oder `syslog-ng`/`metalog` (Artix):
+
+   ```bash
+   sudo grep -r -h -i -E "out of memory|oom-kill|NVRM|Xid" /var/log/ 2>/dev/null | tail -n 30
+   ```
+
+   - `oom-kill` / `Out of memory`: Arbeitsspeicher voll
+   - `NVRM` / `Xid`: Grafiktreiber/VRAM
+
+   Findet der Befehl nichts, werden Kernel-Meldungen nicht dauerhaft gespeichert und sind nach dem Neustart weg.
+   Unter Void Linux lässt sich das so einschalten (andere Distributionen: einen Syslog-Dienst installieren):
+
+   ```bash
+   sudo xbps-install -S socklog-void
+   ```
+   ```bash
+   sudo ln -s /etc/sv/socklog-unix /etc/sv/nanoklogd /var/service/
+   ```
 
 ## Lyrics-Syntax
 

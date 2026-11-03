@@ -170,3 +170,29 @@ def test_yue2_after_job_placements(monkeypatch):
     assert pipe._model.device == "cuda" and pipe._vae.device == "cpu"
     engine.after_job("unload")
     assert pipe.closed and not engine.loaded
+
+
+def test_memory_log_survives_and_is_served(tmp_path):
+    engine = TrackingMock(delay=0.3)
+    with make(tmp_path, engine) as c:
+        job = wait_job(c, c.post("/api/jobs", json=SPEC).json()[0]["id"])
+        assert job["status"] == "done"
+        text = c.get("/api/logs/memory").text
+    logs = list((tmp_path / "logs").glob("memory-*.log"))
+    assert len(logs) == 1
+    assert "Song startet" in text and "Song fertig" in text and "Phase beginnt" in text
+    assert f"job={job['id']}" in text
+
+
+def test_memory_log_sampling_and_prune(tmp_path):
+    for day in range(1, 10):
+        (tmp_path / f"memory-2026-01-0{day}.log").write_text("old\n")
+    ram = {"available_gib": 5.0, "total_gib": 32.0, "used_gib": 27.0, "swap_used_gib": 1.5}
+    gpu = {"cuda": True, "used_gib": 20.0, "total_gib": 24.0, "process_reserved_gib": 18.0}
+    with memory.MemoryLog(tmp_path, "song-1", interval=0.02, keep=3,
+                          ram_reader=lambda: ram, gpu_reader=lambda: gpu) as mlog:
+        mlog.stage = "audio"
+        time.sleep(0.15)
+    text = mlog.path.read_text()
+    assert "phase=audio" in text and "RAM frei 5.0/32.0 GB" in text and "VRAM 20.0/24.0 GB" in text
+    assert len(list(tmp_path.glob("memory-*.log"))) <= 4  # 3 kept + today's
