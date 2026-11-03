@@ -99,8 +99,10 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
         """Memory prediction for the current settings, optionally with unsaved UI values."""
         try:
             candidate = predict_mod.with_overrides(settings, body.get("settings"))
+            from . import calibrate
             result = predict_mod.predict(candidate, body.get("spec") or {},
-                                         manager.profiles.get(predict_mod.profile_key(candidate)))
+                                         manager.profiles.get(predict_mod.profile_key(candidate)),
+                                         calibrate.load(settings.data_dir / "stats" / "calibration.json"))
         except (ValueError, OSError) as exc:
             raise HTTPException(422, str(exc)) from exc
         result["engine"] = candidate.resolved_engine()

@@ -363,6 +363,10 @@ function predictionTitle(pred, kind) {
     lines.push(`Zwischen Songs: ~${pred.ram.idle_gib} GB für Music-Gen-UI`);
   }
   if (pred[kind].estimate_gib) lines.push(`(Schätzung wäre ${pred[kind].estimate_gib} GB)`);
+  if (pred.calibration?.samples) {
+    const f = Object.entries(pred.calibration.factors || {}).map(([k, v]) => `${k} ×${v}`).join(", ");
+    lines.push(`Kalibriert mit ${pred.calibration.samples} Song(s)${f ? `: ${f}` : ""}`);
+  }
   if (pred.measured_song_seconds) lines.push(`Gemessen am längsten bisherigen Song: ${Math.round(pred.measured_song_seconds)} s`);
   return lines.join("\n");
 }

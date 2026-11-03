@@ -98,7 +98,15 @@ Daneben zeigen zwei Leisten den Grafikspeicher (**VRAM**) und den Arbeitsspeiche
 - **Transparente Füllung (orange, gestrichelte Kante):** **Prognose** für den Spitzenwert während eines Songs mit dem gewählten Modell und den aktuellen Einstellungen. Sie passt sich sofort an, wenn du Modell, GGUF-Modus, FP8, Offload, Stil-Treue oder Plan-Modus änderst.
 - **Senkrechter Strich (VRAM):** Grenze für YuE2 (Gesamt-VRAM minus VRAM-Reserve). Liegt die Prognose darüber, wird sie rot und warnt.
 - „geschätzt“: berechnet aus Modellgröße, KV-Cache, CUDA-Graphs, Klangsynthese und Decoder. Nach dem ersten echten Song mit derselben Konfiguration steht dort **„gemessen“** mit den tatsächlichen Spitzenwerten (gespeichert in `data/stats/`). Details zeigt der Tooltip.
-- Im Einstellungsdialog zeigt dieselbe Anzeige die Prognose für die **noch nicht gespeicherten** Werte. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
+- Im Einstellungsdialog zeigt dieselbe Anzeige die Prognose für die **noch nicht gespeicherten** Werte.
+- **„kalibriert“**: Jeder Song misst seine Spitzen je Phase (Komponieren, Klangsynthese, Dekodieren). Daraus lernt die App Korrekturfaktoren für den geschätzten Anteil (Caches, Aktivierungen); die Modellgewichte sind ohnehin exakt.
+  Die Faktoren gelten dann auch für andere Einstellungen und Modelle. Bericht und Kalibrierung aus älteren Songs (über das Speicher-Protokoll):
+
+  ```bash
+  conda activate music-gen-ui && python -m musicgen_ui.calibrate
+  ```
+
+  Mit `--reset` wird die Kalibrierung gelöscht. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
 
 **⚙ Einstellungen** (werden in `data/settings.json` gespeichert):
 

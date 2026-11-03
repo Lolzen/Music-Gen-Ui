@@ -107,7 +107,7 @@ class ProfileStore:
     def get(self, key: str) -> dict | None:
         return self._read().get(key)
 
-    def record(self, key: str, peaks: dict, song_seconds: float) -> None:
+    def record(self, key: str, peaks: dict, song_seconds: float, phases: dict | None = None) -> None:
         if not peaks:
             return
         data = self._read()
@@ -115,6 +115,11 @@ class ProfileStore:
         entry = {**old, "song_seconds": max(song_seconds, old.get("song_seconds", 0)), "updated": time.time()}
         for name, value in peaks.items():
             entry[name] = max(value, old.get(name, 0))
+        if phases:
+            merged = dict(old.get("phases") or {})
+            for phase, values in phases.items():
+                merged[phase] = {k: max(v, (merged.get(phase) or {}).get(k, 0)) for k, v in values.items()}
+            entry["phases"] = merged
         data[key] = entry
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
@@ -123,8 +128,12 @@ class ProfileStore:
 
 
 # ---------------------------------------------------------------- prediction
-def predict(settings: Settings, hints: dict | None = None, measured: dict | None = None) -> dict:
-    """Peak VRAM / host RAM of *this process* for one song with these settings."""
+def predict(settings: Settings, hints: dict | None = None, measured: dict | None = None,
+            calibration: dict | None = None) -> dict:
+    """Peak VRAM / host RAM of *this process* for one song with these settings.
+
+    Each phase = exact weights + estimated overhead (caches, activations). A
+    calibration (factors learned from measured songs) scales the overhead."""
     hints = hints or {}
     s = settings
     gguf = model_format(s.model) == "gguf"
@@ -149,26 +158,31 @@ def predict(settings: Settings, hints: dict | None = None, measured: dict | None
     branches = 2 if (cfg is not None and cfg != 1) or (cfg is None and plan == "off") else 1
     audio_tokens = int(hints.get("audio_max_tokens") or 9000)
     tokens = PREFIX_TOKENS.get(plan, 3500) + audio_tokens
+    # the AR KV cache is allocated for the full budget; the NAR works on what was generated
+    nar_tokens = PREFIX_TOKENS.get(plan, 3500) + int(hints.get("audio_tokens_actual") or audio_tokens)
     kv_per_token = arch["layers"] * 2 * arch["kv_heads"] * arch["head_dim"] * 2
     kv = tokens * kv_per_token * branches
     fused = (arch["layers"] * (arch["heads"] * arch["head_dim"] + 2 * arch["kv_heads"] * arch["head_dim"] + 2 * arch["ff"])
              * arch["hidden"] * 2) if graphs else 0
 
     others = gpu("embed") + gpu("head") + gpu("extra")
-    ar_phase = others + ar_phase_ar + gpu("nar") + kv + fused
-    nar_cache = tokens * kv_per_token
-    nar_phase = gpu("nar") + gpu("extra") + (0 if s.offload else gpu("embed") + gpu("head") + gpu("ar")) \
-        + nar_cache + NAR_TRANSIENT_GIB * GIB
     tile = 512 if s.offload else 1024
-    vae_phase = (VAE_GIB + VAE_ACT_GIB_PER_1K * tile / 1024) * GIB
-    phases = {"Komponieren": ar_phase, "Klangsynthese": nar_phase, "Dekodieren": vae_phase}
+    parts = {  # phase -> (weights on the GPU, overhead) in bytes
+        "Komponieren": (others + ar_phase_ar + gpu("nar"), kv + fused),
+        "Klangsynthese": (gpu("nar") + gpu("extra") + (0 if s.offload else gpu("embed") + gpu("head") + gpu("ar")),
+                          nar_tokens * kv_per_token + NAR_TRANSIENT_GIB * GIB),
+        "Dekodieren": (VAE_GIB * GIB, VAE_ACT_GIB_PER_1K * tile / 1024 * GIB),
+    }
+    factors = (calibration or {}).get("factors", {})
+    phases = {name: w + o * factors.get(name, 1.0) for name, (w, o) in parts.items()}
     vram_peak = max(phases.values()) / GIB + CUDA_CONTEXT_GIB
+    calibrated = bool(factors)
 
     model_bytes = sum(gpu(g) for g in GROUPS)
     ram_model = model_bytes  # loading and decoding both hold the whole model in host RAM once
-    ram_peak = PROCESS_BASE_GIB + ram_model / GIB + VAE_GIB + 0.3
-    idle = {"ram": PROCESS_BASE_GIB + model_bytes / GIB, "gpu": PROCESS_BASE_GIB,
-            "unload": PROCESS_BASE_GIB}[s.idle_placement]
+    base = (calibration or {}).get("ram_base_gib", PROCESS_BASE_GIB)
+    ram_peak = base + ram_model / GIB + VAE_GIB + 0.3
+    idle = {"ram": base + model_bytes / GIB, "gpu": base, "unload": base}[s.idle_placement]
 
     result = {
         "model": s.model, "gguf_mode": mode, "key": profile_key(s),
@@ -176,9 +190,12 @@ def predict(settings: Settings, hints: dict | None = None, measured: dict | None
                         "cfg_branches": branches, "cuda_graphs": graphs, "fp8": fp8, "offload": s.offload},
         "weights_gib": round(model_bytes / GIB, 2), "weights_bytes": model_bytes,
         "file_gib": round(sum(g["bytes"] for g in groups.values()) / GIB, 2) if gguf else None,
-        "vram": {"peak_gib": round(vram_peak, 2), "basis": "geschätzt",
+        "vram": {"peak_gib": round(vram_peak, 2), "basis": "kalibriert" if calibrated else "geschätzt",
                  "phases": {k: round(v / GIB + CUDA_CONTEXT_GIB, 2) for k, v in phases.items()}},
-        "ram": {"peak_gib": round(ram_peak, 2), "idle_gib": round(idle, 2), "basis": "geschätzt"},
+        "ram": {"peak_gib": round(ram_peak, 2), "idle_gib": round(idle, 2),
+                "basis": "kalibriert" if "ram_base_gib" in (calibration or {}) else "geschätzt"},
+        "breakdown": {k: {"weights_gib": round(w / GIB, 3), "overhead_gib": round(o / GIB, 3)} for k, (w, o) in parts.items()},
+        "calibration": {"factors": factors, "samples": (calibration or {}).get("samples", 0)} if calibration else None,
     }
     if measured:
         if "vram_peak_gib" in measured:

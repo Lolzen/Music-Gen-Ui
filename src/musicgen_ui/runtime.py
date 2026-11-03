@@ -16,6 +16,7 @@ from .config import Settings, vllm_installed, yue2_installed
 from .engine import Cancelled, Engine, EngineResult, create_engine
 from .engine.base import CancelledFn, ProgressFn
 from .memory import InsufficientMemory, MemoryLog, RamGuard, available_gib, is_oom, read_peaks, reset_peaks
+from .calibrate import PHASE_OF_STAGE
 from .predict import ProfileStore, profile_key
 from .prompting import CompiledRequest
 
@@ -160,8 +161,20 @@ class EngineManager:
                        f"zwischen Songs: {s.idle_placement}, VRAM-Reserve {s.vram_reserve_gib} GB, "
                        f"RAM-Notbremse {s.ram_guard_gib} GB)")
 
+            phase_peaks: dict[str, dict] = {}
+
+            def close_phase(stage: str) -> None:
+                """Exact peaks of the phase that just ended, then a fresh measurement window."""
+                phase = PHASE_OF_STAGE.get(stage)
+                if phase:
+                    entry = phase_peaks.setdefault(phase, {})
+                    for key, value in read_peaks().items():
+                        entry[key] = max(entry.get(key, 0.0), value)
+                reset_peaks()
+
             def tracked(stage: str, done: int, total: int) -> None:
                 if stage != mlog.stage:
+                    close_phase(mlog.stage)
                     mlog.stage = stage
                     mlog.event("Phase beginnt")
                 progress(stage, done, total)
@@ -184,12 +197,19 @@ class EngineManager:
                         if guard.tripped:
                             raise InsufficientMemory(guard.message) from None
                         raise
+                close_phase(mlog.stage)
                 mlog.stage = "fertig"
-                peaks = read_peaks()
+                peaks: dict[str, float] = {}
+                for values in phase_peaks.values():
+                    for key, value in values.items():
+                        peaks[key] = max(peaks.get(key, 0.0), value)
                 mlog.event(f"Song fertig ({result.duration_s:.0f} s Musik), Spitzen: "
-                           + ", ".join(f"{k}={v} GB" for k, v in peaks.items()))
+                           + ", ".join(f"{k}={v} GB" for k, v in peaks.items()) + " | je Phase: "
+                           + "; ".join(f"{p} " + ", ".join(f"{k}={v}" for k, v in vals.items())
+                                       for p, vals in phase_peaks.items()))
                 if self.engine.name == "yue2":
-                    self.profiles.record(profile_key(s), peaks, result.duration_s)
+                    self.profiles.record(profile_key(s), peaks, result.duration_s, phases=phase_peaks)
+                    self._calibrate(request, result, phase_peaks, peaks)
                 return result
             except Exception as exc:
                 mlog.event(f"ABBRUCH: {type(exc).__name__}: {exc}")
@@ -208,6 +228,22 @@ class EngineManager:
                     log.exception("Idle placement failed")
                 if self._state == "busy":
                     self._set("ready" if self.engine.loaded else "unloaded")
+
+    def _calibrate(self, request: CompiledRequest, result: EngineResult, phase_peaks: dict, peaks: dict) -> None:
+        """Feed the measured song into the prediction's calibration (never fails the song)."""
+        try:
+            from . import calibrate
+            from .predict import predict
+            hints = {"plan_mode": request.cot, "cfg_scale": request.cfg_scale,
+                     "audio_max_tokens": (request.semantic_sampling or {}).get("max_tokens"),
+                     "audio_tokens_actual": int(result.duration_s * 25)}
+            estimate = predict(self.settings, hints)
+            measured = {phase: v["vram_peak_gib"] for phase, v in phase_peaks.items() if "vram_peak_gib" in v}
+            calibrate.update(self.settings.data_dir / "stats" / "calibration.json", estimate["breakdown"], measured,
+                             ram_peak_gib=peaks.get("ram_peak_gib"), ram_model_gib=estimate["weights_gib"],
+                             source=request.id)
+        except Exception:  # noqa: BLE001
+            log.exception("Calibration update failed")
 
     def shutdown(self) -> None:
         try:

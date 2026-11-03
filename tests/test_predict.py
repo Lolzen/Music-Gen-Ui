@@ -111,3 +111,82 @@ def test_quiet_polling_filter():
     assert f.filter(record("POST", "/api/jobs", 200))      # starting a song stays visible
     assert f.filter(record("GET", "/api/status", 500))     # errors stay visible
     assert f.filter(record("GET", "/api/jobs/abc/audio", 200))
+
+
+# ---------------------------------------------------------------- calibration
+from musicgen_ui import calibrate  # noqa: E402
+
+
+def test_factors_and_running_mean(tmp_path):
+    breakdown = {"Komponieren": {"weights_gib": 6.8, "overhead_gib": 3.0},
+                 "Klangsynthese": {"weights_gib": 6.8, "overhead_gib": 2.0},
+                 "Dekodieren": {"weights_gib": 0.27, "overhead_gib": 0.01}}
+    assert calibrate.factors_from(breakdown, {"Komponieren": 8.3, "Klangsynthese": 30.0, "Dekodieren": 2.0}) == \
+        {"Komponieren": 0.5, "Klangsynthese": 5.0}  # clamped; tiny overhead ignored
+    path = tmp_path / "cal.json"
+    calibrate.update(path, breakdown, {"Komponieren": 8.3}, ram_peak_gib=12.0, ram_model_gib=6.8)
+    data = calibrate.update(path, breakdown, {"Komponieren": 9.8})
+    assert data["factors"]["Komponieren"] == 0.75 and data["counts"]["Komponieren"] == 2
+    assert data["ram_base_gib"] == round(12.0 - 6.8 - 0.27 - 0.3, 2) and data["samples"] == 2
+
+
+def test_prediction_uses_calibration():
+    plain = predict.predict(Settings())
+    cal = predict.predict(Settings(), calibration={"factors": {"Komponieren": 0.2, "Klangsynthese": 2.0},
+                                                   "ram_base_gib": 1.5, "samples": 3})
+    b = plain["breakdown"]["Komponieren"]
+    assert cal["vram"]["basis"] == "kalibriert" and cal["ram"]["basis"] == "kalibriert"
+    assert cal["vram"]["phases"]["Komponieren"] == round(b["weights_gib"] + 0.2 * b["overhead_gib"] + 0.5, 2)
+    assert cal["vram"]["phases"]["Klangsynthese"] > plain["vram"]["phases"]["Klangsynthese"]
+    assert cal["ram"]["peak_gib"] < plain["ram"]["peak_gib"]
+
+
+USER_LOG = """2026-11-03 16:30:00  job=Free-Palestine-c9187a  phase=start     Song startet (Engine yue2, Offload aus, zwischen Songs: ram, VRAM-Reserve 3.0 GB, RAM-Notbremse 2.0 GB)  |  RAM frei 26.1/31.2 GB
+2026-11-03 16:30:10  job=Free-Palestine-c9187a  phase=audio     RAM frei 26.1/31.2 GB  Swap 0.0 GB  VRAM 8.2/22.1 GB (PyTorch reserviert 7.4)  GPU 115/500 W
+2026-11-03 16:31:30  job=Free-Palestine-c9187a  phase=nar       RAM frei 26.1/31.2 GB  Swap 0.0 GB  VRAM 10.3/22.1 GB (PyTorch reserviert 9.5)  GPU 177/500 W
+2026-11-03 16:32:10  job=Free-Palestine-c9187a  phase=vae       RAM frei 24.0/31.2 GB  Swap 0.0 GB  VRAM 3.1/22.1 GB (PyTorch reserviert 2.2)
+2026-11-03 16:32:24  job=Free-Palestine-c9187a  phase=fertig    Song fertig (81 s Musik), Spitzen:   |  RAM frei 24.0/31.2 GB
+2026-11-03 16:40:00  job=crashed-1  phase=nar       RAM frei 26.1/31.2 GB  VRAM 10.3/22.1 GB (PyTorch reserviert 9.5)
+"""
+
+
+def test_calibrate_cli_from_user_log(tmp_path, capsys):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "memory-2026-11-03.log").write_text(USER_LOG)
+    songs = calibrate.songs_from_logs(logs)
+    assert [s["job"] for s in songs] == ["Free-Palestine-c9187a"]  # unfinished song ignored
+    assert songs[0]["phases"] == {"Komponieren": 7.4, "Klangsynthese": 9.5, "Dekodieren": 2.2}
+    assert songs[0]["offload"] is False and songs[0]["seconds"] == 81
+    assert calibrate.main(["--data-dir", str(tmp_path)]) == 0
+    report = capsys.readouterr().out
+    assert "Komponieren" in report and "gemessen   7.4 GB" in report and "1 neue Song" in report
+    data = calibrate.load(tmp_path / "stats" / "calibration.json")
+    assert data["samples"] == 1 and data["factors"]["Komponieren"] < 1  # composition overhead was overestimated
+    calibrate.main(["--data-dir", str(tmp_path)])  # second run must not count the song twice
+    assert calibrate.load(tmp_path / "stats" / "calibration.json")["samples"] == 1
+    calibrate.main(["--data-dir", str(tmp_path), "--reset"])
+    assert not (tmp_path / "stats" / "calibration.json").exists()
+
+
+def test_song_records_phase_peaks_and_calibrates(tmp_path, monkeypatch):
+    """Through the real runtime path (fake yue2): per-phase peaks stored, RAM base calibrated."""
+    import sys
+    import types
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
+    from test_settings_engine import FakePipelineRelease, install_fake
+    install_fake(monkeypatch, FakePipelineRelease)
+    import time
+    settings = Settings(engine="yue2", data_dir=tmp_path, plugin_dirs=[], models_dir=tmp_path / "models")
+    with TestClient(create_app(settings)) as c:
+        job = c.post("/api/jobs", json={"lyrics": "[Verse]\nla", "seed": 1}).json()[0]
+        for _ in range(250):
+            if c.get(f"/api/jobs/{job['id']}").json()["status"] not in ("queued", "running"):
+                break
+            time.sleep(0.02)
+        profile = next(iter(json.loads((tmp_path / "stats" / "memory-profiles.json").read_text()).values()))
+        assert "Komponieren" in profile["phases"] and "ram_peak_gib" in profile["phases"]["Komponieren"]
+        cal = calibrate.load(tmp_path / "stats" / "calibration.json")
+        assert cal["samples"] == 1 and "ram_base_gib" in cal
+        r = c.post("/api/predict", json={}).json()
+        assert r["ram"]["basis"] in ("kalibriert", "gemessen")
