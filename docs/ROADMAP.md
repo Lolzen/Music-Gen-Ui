@@ -43,6 +43,7 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 - [x] Erster Lauf mit YuE2 auf der RTX 4090 (Song funktioniert; danach System-OOM)
 - [x] YuE2-Versionserkennung (Release vs. main)
 - [x] Speicher-Schutz: Offload (optional), Modell-Platz zwischen Songs, VRAM-Reserve, RAM-Notbremse, Aufräumen nach OOM
+- [x] „Abstürze“ geklärt: kein RAM/VRAM-, Strom- oder PCIe-Problem; die Klangsynthese blockierte die GPU, die auch den Desktop rendert → „Desktop flüssig halten“ (bestätigt auf RTX 4090: 81 s Musik in 144 s, Desktop bedienbar)
 - [ ] Laufzeit und Speicher-Spitzen pro Phase auf der 4090 messen, Standardwerte nachjustieren
 - [ ] Export: FLAC/WAV/MP3, Lautheit normalisieren
 

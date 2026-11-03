@@ -81,3 +81,12 @@ GGUF-Dateien (HOT-Step-Layout) werden in die offizielle PyTorch-Pipeline geladen
 - `.pt`-Dateien (Regularisierungs-Paket, LoRA-Checkpoints) werden nur mit `weights_only` geladen; zusätzlich erlaubt sind ausschließlich numpy-Typen. Pickles mit Code werden abgelehnt.
 - Vor dem Start ist eine Bestätigung nötig: Rechte an den Aufnahmen bzw. Einwilligung der Künstler*innen.
 
+## E12 – „Desktop flüssig halten“ standardmäßig an
+
+Auf einer GPU, die auch den Bildschirm betreibt, blockierte YuE2s Klangsynthese den Desktop so lange, dass Browser abstürzten und Menüs nicht mehr aufgingen. Das sah wie ein Systemabsturz aus.
+Eingegrenzt wurde es Schritt für Schritt mit Speicher-Protokoll, Telemetrie, ECC/PCIe-Prüfung und Tests mit und ohne Offload.
+
+- Die Attention der Klangsynthese läuft in Blöcken (YuE2s eigenes `query_chunk_size`), und alle paar NAR-Schichten gibt es eine kurze Pause.
+- Das Komponieren mit CUDA-Graphs bleibt unverändert.
+- Standard ist „Ausgewogen“. Wer die GPU nur für Musik nutzt (Monitor an der iGPU), kann auf „Aus“ stellen.
+
