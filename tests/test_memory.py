@@ -104,8 +104,8 @@ def test_ram_guard_stops_running_song_and_unloads(tmp_path, monkeypatch):
     engine = TrackingMock(delay=3.0)
     with make(tmp_path, engine, ram_guard_gib=2.0) as c:
         job_id = c.post("/api/jobs", json=SPEC).json()[0]["id"]
-        for _ in range(100):
-            if c.get(f"/api/jobs/{job_id}").json()["status"] == "running":
+        for _ in range(1500):  # wait until the song really generates (first status call may import torch)
+            if c.get(f"/api/jobs/{job_id}").json()["progress"]["stage"]:
                 break
             time.sleep(0.02)
         readings["free"] = 0.5  # RAM runs out mid-song
@@ -229,3 +229,12 @@ def test_parse_pcie_replays():
         Replay Number Rollovers                        : 0"""
     assert memory.parse_replays(sample) == 7
     assert memory.parse_replays("no pcie section") is None
+
+
+def test_stress_refuses_without_cuda():
+    torch = pytest.importorskip("torch")
+    if torch.cuda.is_available():
+        pytest.skip("real GPU present")
+    from musicgen_ui import stress
+    with pytest.raises(SystemExit, match="CUDA"):
+        stress.main(["--seconds", "1"])

@@ -345,6 +345,16 @@ Das Protokoll zeigt jede Sekunde Leistung, Temperatur, Takt, Last und PCIe-Verbi
 sudo nvidia-smi -pl 300
 ```
 
+**Test ohne YuE2: GPU-Stresstest.** Er erzeugt dieselbe schlagartige BF16-Volllast wie die Klangsynthese und schreibt jede Sekunde Leistung und Temperatur nach `data/logs/stress-*.log`. Vorher offene Arbeit speichern, er kann das System einfrieren:
+
+```bash
+conda activate music-gen-ui && python -m musicgen_ui.stress --mode instant --seconds 60
+```
+
+- Friert er ebenfalls ein, liegt es an Hardware oder Stromversorgung, nicht an YuE2.
+- Läuft `--mode ramp` (Last langsam steigend) durch, `instant` aber nicht, sind es Lastsprünge: Netzteil oder 12VHPWR-Stecker.
+- Hilft eine niedrigere Taktgrenze (`sudo nvidia-smi -lgc 210,2400`, zurücksetzen mit `sudo nvidia-smi -rgc`), ist die Werks-Übertaktung unter dieser Last nicht stabil.
+
 Läuft er jetzt durch, waren es Lastspitzen. Dann Netzteil und 12VHPWR-Stecker prüfen oder dauerhaft mit Limit arbeiten (bei 350 W ist die 4090 nur wenig langsamer).
 Nach einem Neustart gilt wieder das Standardlimit. Zurücksetzen geht auch mit `sudo nvidia-smi -pl 450`.
 
