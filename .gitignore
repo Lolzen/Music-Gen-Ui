@@ -8,3 +8,5 @@ dist/
 .pytest_cache/
 # Generated songs, uploads, model caches
 data/
+models/*
+!models/README.txt

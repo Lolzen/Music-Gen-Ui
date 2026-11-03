@@ -92,3 +92,9 @@ dialog { max-width: min(90vw, 60rem); width: 100%; border: 1px solid var(--line)
 .bar > div.danger { background: var(--error); }
 fieldset.memory label.check { align-items: flex-start; }
 fieldset.memory label.check input { margin-top: 0.25rem; }
+
+/* --- model picker ---------------------------------------------------------- */
+.modelbar { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem; padding: 0 1rem 1rem; }
+.modelbar label { flex-direction: row; align-items: center; gap: 0.4rem; color: var(--text); font-size: 0.9rem; }
+.modelbar select { min-width: 16rem; max-width: 34rem; }
+.modelbar #model-note { flex-basis: 100%; }

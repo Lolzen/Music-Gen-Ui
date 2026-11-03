@@ -369,12 +369,96 @@ function setupEngineControls() {
   });
 }
 
+// ---------------------------------------------------------------- model picker
+let modelCatalog = null;
+
+function entryText(e) {
+  const bits = [e.quant, e.size_gib ? `${e.size_gib} GB` : null, e.format === "gguf" ? "GGUF" : null]
+    .filter(Boolean).join(", ");
+  return bits ? `${e.label} · ${bits}` : e.label;
+}
+
+function fillPicker(select, entries, selected, folder) {
+  select.innerHTML = "";
+  const groups = [["Lokal", entries.filter((e) => e.source === "local")],
+    ["Hugging Face", entries.filter((e) => e.source === "hub")]];
+  for (const [name, list] of groups) {
+    const group = document.createElement("optgroup");
+    group.label = name === "Lokal" ? `Lokal (${folder})` : name;
+    if (!list.length && name === "Lokal") {
+      const o = document.createElement("option");
+      o.disabled = true; o.textContent = "– Ordner ist leer –";
+      group.append(o);
+    }
+    for (const e of list) {
+      const o = document.createElement("option");
+      o.value = e.value; o.textContent = entryText(e) + (e.engine ? "" : " ⚠");
+      o.title = e.note || "";
+      o.disabled = !e.engine;
+      group.append(o);
+    }
+    select.append(group);
+  }
+  if (![...select.options].some((o) => o.value === selected)) {
+    const o = document.createElement("option");
+    o.value = selected; o.textContent = `${selected} (benutzerdefiniert)`;
+    select.prepend(o);
+  }
+  select.value = selected;
+}
+
+function showModelNote() {
+  if (!modelCatalog) return;
+  const notes = [];
+  for (const kind of ["checkpoint", "vae"]) {
+    const value = $(`#pick-${kind}`).value;
+    const entry = modelCatalog[kind].find((e) => e.value === value);
+    if (entry?.engine === "gguf") notes.push(`${entry.label}: GGUF – braucht die GGUF-Engine (in Arbeit)`);
+    else if (entry?.note) notes.push(`${entry.label}: ${entry.note}`);
+  }
+  const skipped = [...modelCatalog.checkpoint, ...modelCatalog.vae].filter((e) => !e.engine).length;
+  if (skipped) notes.push(`${skipped} Datei(en) nicht nutzbar – Details per Mauszeiger auf ⚠`);
+  $("#model-note").textContent = notes.join(" · ");
+}
+
+async function loadModels() {
+  try {
+    modelCatalog = await api("/api/models");
+  } catch (err) {
+    $("#model-note").textContent = `Modell-Ordner nicht lesbar: ${err.message}`;
+    return;
+  }
+  fillPicker($("#pick-checkpoint"), modelCatalog.checkpoint, modelCatalog.selected.checkpoint, "models/yue2");
+  fillPicker($("#pick-vae"), modelCatalog.vae, modelCatalog.selected.vae, "models/vae");
+  $("#models-refresh").title = `Modell-Ordner neu einlesen (${modelCatalog.root})`;
+  showModelNote();
+}
+
+async function pickModel(kind) {
+  const key = kind === "checkpoint" ? "model" : "vae";
+  const select = $(`#pick-${kind}`);
+  try {
+    const res = await api("/api/settings", { method: "PUT", body: JSON.stringify({ [key]: select.value }) });
+    renderEngine(res.engine);
+    refreshStatus();
+  } catch (err) {
+    showBanner("");
+    $("#banner").hidden = false;
+    $("#banner").textContent = `Modell nicht gewechselt: ${err.message}`;
+  }
+  loadModels();
+}
+
 // ---------------------------------------------------------------- init
 async function init() {
   info = await api("/api/info");
   renderEngine(info.engine);
   setupEngineControls();
   refreshStatus();
+  loadModels();
+  $("#pick-checkpoint").addEventListener("change", () => pickModel("checkpoint"));
+  $("#pick-vae").addEventListener("change", () => pickModel("vae"));
+  $("#models-refresh").addEventListener("click", loadModels);
 
   for (const name of info.sections) {
     const b = document.createElement("button");

@@ -113,6 +113,25 @@ Während der Generierung zeigt jeder Job seine Phase:
 
 Ein Song ist auf ca. 6 Minuten begrenzt. „⚠ abgeschnitten“ heißt, dass dieses Limit erreicht wurde.
 
+## Modelle & Ordner
+
+Wie bei Bildgenerierungs-UIs liegen Modelle im Ordner `models/` (anderer Ort: `--models-dir PFAD` oder `MGU_MODELS_DIR`):
+
+```text
+models/
+  yue2/   Checkpoints: Hugging-Face-Ordner (config.json + *.safetensors) oder *.gguf
+  vae/    Audio-Decoder (VAE): Hugging-Face-Ordner oder *.gguf
+  lora/   LoRA-Adapter (*.safetensors, optional mit lora.json)
+```
+
+Oben in der Oberfläche wählst du **Modell** und **VAE** aus. 🔄 liest den Ordner neu ein. Zusätzlich stehen immer die offiziellen Hugging-Face-Modelle zur Auswahl; die liegen im Hugging-Face-Cache.
+Dateien, die nicht passen, erscheinen ausgegraut mit ⚠. Der Grund steht im Tooltip. Beispiele:
+- YuE-**v1**-Modelle wie `YuE-s2-1B-general` (Vorgänger, eigene Architektur)
+- ein Checkpoint im `vae/`-Ordner
+- beschädigte Dateien
+
+**GGUF** (quantisierte Modelle): Sie werden erkannt und mit Quantisierung und Größe angezeigt. Die GGUF-Engine zum Ausführen ist in Arbeit.
+
 ## Speicher & Offload
 
 Ein Song mit YuE2 braucht zwei Arten Speicher:

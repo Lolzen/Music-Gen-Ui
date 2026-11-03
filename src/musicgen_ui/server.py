@@ -9,6 +9,7 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import catalog
 from .config import BACKENDS, DEVICES, ENGINES, IDLE_PLACEMENTS, QUANTIZATIONS, Settings
 from .jobs import JobQueue
 from .models import YUE2_DEFAULTS, SongSpec
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     settings = settings or Settings.load()
     plugins = PluginManager()
     plugins.load_dirs(settings.plugin_dirs)
+    catalog.ensure_dirs(settings.models_dir)
     manager = EngineManager(settings, engine)
     queue = JobQueue(manager, settings.library_dir, plugins)
 
@@ -77,6 +79,11 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     def put_settings(values: dict = Body(...)):
         guarded(lambda: manager.configure(values))
         return {"values": settings.editable(), "engine": manager.status()}
+
+    @app.get("/api/models")
+    def models():
+        return {**catalog.scan(settings.models_dir),
+                "selected": {"checkpoint": settings.model, "vae": settings.vae}}
 
     @app.get("/api/logs/memory")
     def memory_log():

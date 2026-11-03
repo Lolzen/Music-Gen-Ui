@@ -17,6 +17,7 @@ import inspect
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ..catalog import model_format
 from ..config import Settings
 from ..download import DownloadMonitor
 from ..memory import GIB, free_cuda_cache
@@ -146,6 +147,10 @@ class YuE2Engine:
         except ImportError as exc:
             raise RuntimeError(INSTALL_HINT) from exc
         s = self.settings
+        gguf = [v for v in (s.model, s.vae) if model_format(v) == "gguf"]
+        if gguf:
+            raise RuntimeError(f"{Path(gguf[0]).name} ist ein GGUF-Modell – dafür ist die GGUF-Engine nötig, "
+                               "die gerade eingebaut wird. Bis dahin im Modell-Picker ein Hugging-Face-Modell wählen.")
         self.api = detect_api(YuE2Pipeline)
         progress("download", 0, 0)
         with DownloadMonitor([s.model, s.vae], lambda size: progress("download", size, 0)):

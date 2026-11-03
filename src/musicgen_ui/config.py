@@ -86,6 +86,7 @@ class Settings:
     mock_delay: float = 2.0
 
     plugin_dirs: list[Path] = field(default_factory=lambda: [Path("plugins")])
+    models_dir: Path = Path("models")  # models/yue2, models/vae, models/lora
 
     @property
     def library_dir(self) -> Path:
@@ -165,6 +166,8 @@ class Settings:
                 s.update({key: value})
             else:
                 setattr(s, key, value)
+        if env.get("MGU_MODELS_DIR"):
+            s.models_dir = Path(env["MGU_MODELS_DIR"])
         dirs = env.get("MGU_PLUGIN_DIRS")
         if dirs:
             s.plugin_dirs = [Path(p) for p in dirs.split(os.pathsep) if p]
@@ -177,4 +180,5 @@ class Settings:
         data = asdict(self)
         data["data_dir"] = str(self.data_dir)
         data["plugin_dirs"] = [str(p) for p in self.plugin_dirs]
+        data["models_dir"] = str(self.models_dir)
         return data

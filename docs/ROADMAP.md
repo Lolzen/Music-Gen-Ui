@@ -46,6 +46,11 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 - [ ] Laufzeit und Speicher-Spitzen pro Phase auf der 4090 messen, Standardwerte nachjustieren
 - [ ] Export: FLAC/WAV/MP3, Lautheit normalisieren
 
+## Phase 1b – Modelle & GGUF
+- [x] `models/`-Ordner (yue2, vae, lora) mit Picker in der UI, Erkennung von HF-Ordnern und GGUF (Quantisierung, Architektur)
+- [x] Unpassende Dateien erkennen (YuE v1, falscher Ordner, defekt)
+- [ ] GGUF-Engine (Ansatz siehe Entscheidung E10)
+
 ## Phase 2 – LoRA laden
 - [ ] LoRA-Ordner `data/loras/`, Liste in der UI, mehrere LoRAs mit eigener Stärke pro Song
 - [ ] Loader für die Community-Formate (siehe [LORA.md](LORA.md)), Anwendung ohne Neuladen des Basismodells

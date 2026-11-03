@@ -29,6 +29,12 @@
   <button type="button" id="open-settings" class="ghost" title="Einstellungen">⚙ Einstellungen</button>
 </header>
 <div id="banner" class="banner" hidden></div>
+<section class="modelbar" aria-label="Modell-Auswahl">
+  <label>Modell <select id="pick-checkpoint"></select></label>
+  <label>VAE <select id="pick-vae"></select></label>
+  <button type="button" id="models-refresh" class="ghost" title="Modell-Ordner neu einlesen">🔄</button>
+  <span id="model-note" class="muted"></span>
+</section>
 
 <main>
   <form id="song-form" class="panel" autocomplete="off">
@@ -189,7 +195,8 @@
         </label>
         <label>Speicherbudget (GiB, Obergrenze) <input name="memory_budget_gib" type="number" min="4" max="1024" step="1"></label>
       </div>
-      <p class="hint">YuE2-Vae ist der Standard zum Hören, YuE2-Vae-legacy der Decoder der offiziellen Benchmarks.</p>
+      <p class="hint">Einfacher: der Modell-Picker oben. Hier lassen sich auch Pfade außerhalb von <code>models/</code> eintragen.
+        YuE2-Vae ist der Standard zum Hören, YuE2-Vae-legacy der Decoder der offiziellen Benchmarks.</p>
     </details>
     <p class="hint">Änderungen entladen das aktuelle Modell. Beim nächsten Song (oder mit „Modell laden“) wird es neu geladen.</p>
     <p id="settings-error" class="error"></p>
