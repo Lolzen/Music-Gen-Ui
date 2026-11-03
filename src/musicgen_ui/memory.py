@@ -8,6 +8,7 @@ freeing the model) before the system starts thrashing.
 from __future__ import annotations
 
 import gc
+import re
 import threading
 from pathlib import Path
 
@@ -179,27 +180,61 @@ class MemoryLog:
 
 
 _SMI_FIELDS = "power.draw,power.limit,temperature.gpu,clocks.sm,utilization.gpu,pstate"
+_SMI_PCIE = ",pcie.link.gen.current,pcie.link.width.current"
 _smi_available: bool | None = None
+_smi_pcie = True                      # dropped if this nvidia-smi does not know the PCIe fields
+_replays = {"value": None, "at": 0.0}
+REPLAY_INTERVAL_S = 15.0
+
+
+def parse_replays(text: str) -> int | None:
+    match = re.search(r"Replays Since Reset\s*:\s*(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+def _pcie_replays(now: float) -> int | None:
+    """PCIe replay counter (link errors); read every 15 s because `nvidia-smi -q` is slower."""
+    import subprocess
+    if now - _replays["at"] >= REPLAY_INTERVAL_S:
+        _replays["at"] = now
+        try:
+            out = subprocess.run(["nvidia-smi", "-q", "-i", "0"], capture_output=True, text=True, timeout=3).stdout
+            _replays["value"] = parse_replays(out)
+        except Exception:  # noqa: BLE001
+            _replays["value"] = None
+    return _replays["value"]
 
 
 def gpu_telemetry() -> str | None:
-    """Power, temperature, clock and load via nvidia-smi (no root needed).
+    """Power, temperature, clock, load and PCIe link via nvidia-smi (no root needed).
 
-    Shows whether a freeze coincides with a power/heat spike of the card."""
-    global _smi_available
+    Shows whether a freeze coincides with a power/heat spike or PCIe link errors."""
+    global _smi_available, _smi_pcie
     if _smi_available is False:
         return None
     import shutil
     import subprocess
+    import time
     if _smi_available is None:
         _smi_available = shutil.which("nvidia-smi") is not None
         if not _smi_available:
             return None
     try:
-        out = subprocess.run(["nvidia-smi", f"--query-gpu={_SMI_FIELDS}", "--format=csv,noheader,nounits", "-i", "0"],
-                             capture_output=True, text=True, timeout=2).stdout.strip()
-        power, limit, temp, clock, util, pstate = [v.strip() for v in out.split(",")]
-        return f"GPU {float(power):.0f}/{float(limit):.0f} W  {temp} °C  {clock} MHz  Last {util} %  {pstate}"
+        fields = _SMI_FIELDS + (_SMI_PCIE if _smi_pcie else "")
+        result = subprocess.run(["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits", "-i", "0"],
+                                capture_output=True, text=True, timeout=2)
+        if result.returncode != 0 and _smi_pcie:
+            _smi_pcie = False  # older/newer nvidia-smi without these fields: keep the rest working
+            return gpu_telemetry()
+        values = [v.strip() for v in result.stdout.strip().split(",")]
+        power, limit, temp, clock, util, pstate = values[:6]
+        text = f"GPU {float(power):.0f}/{float(limit):.0f} W  {temp} °C  {clock} MHz  Last {util} %  {pstate}"
+        if _smi_pcie and len(values) >= 8:
+            text += f"  PCIe Gen{values[6]} x{values[7]}"
+        replays = _pcie_replays(time.monotonic())
+        if replays is not None:
+            text += f"  Replays {replays}"
+        return text
     except Exception:  # noqa: BLE001 - telemetry is best effort
         return None
 

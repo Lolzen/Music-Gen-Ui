@@ -337,7 +337,7 @@ Zurück zum Release geht es mit einem normalen `./install.sh`. Welche Version l�
 Bleibt im Speicher-Protokoll genug RAM und VRAM frei und friert das System trotzdem ein, liegt die Ursache fast immer unterhalb der App: beim Grafiktreiber oder der Grafikkarte.
 Ein normaler Prozess kann Linux sonst nicht einfrieren. Besonders verdächtig ist der Wechsel von `audio` (Komponieren, wenig Last) zu `nar` (Klangsynthese, Volllast): An dieser Stelle zieht eine 4090 kurz deutlich mehr als 450 W.
 
-Das Protokoll zeigt jede Sekunde Leistung, Temperatur, Takt und Last der Karte (`GPU 312/450 W  61 °C …`). Ein abgebrochener Song nennt nach dem Neustart die Phase und die letzte Messung.
+Das Protokoll zeigt jede Sekunde Leistung, Temperatur, Takt, Last und PCIe-Verbindung der Karte (`GPU 312/450 W  61 °C … PCIe Gen4 x16  Replays 0`). Steigt der Replay-Zähler während eines Songs, ist die PCIe-Verbindung instabil (Riser-Kabel, Slot); dann im BIOS den Slot auf Gen 3 stellen. Ein abgebrochener Song nennt nach dem Neustart die Phase und die letzte Messung.
 
 **Test: Leistungsgrenze senken.** Den gleichen Song (gleicher Seed) noch einmal erzeugen:
 

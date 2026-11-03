@@ -222,3 +222,10 @@ def test_telemetry_line_in_memory_log(tmp_path):
                           telemetry_reader=lambda: "GPU 312/450 W  61 °C") as mlog:
         time.sleep(0.08)
     assert "GPU 312/450 W" in mlog.path.read_text()
+
+
+def test_parse_pcie_replays():
+    sample = """        Replays Since Reset                            : 7
+        Replay Number Rollovers                        : 0"""
+    assert memory.parse_replays(sample) == 7
+    assert memory.parse_replays("no pcie section") is None
