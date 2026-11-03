@@ -90,7 +90,7 @@ class FakeSong:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "audio.flac").write_bytes(b"fLaC")
         (directory / "score.abc").write_text("X:1\nK:C\n")
-        return {"status": "complete", "truncated": False, "audio_seconds": 12.5,
+        return {"status": "complete", "truncated": {"abc": False, "semantic": False}, "audio_seconds": 12.5,
                 "timing": {"e2e_seconds": 3.0}, "weights": {"mot": "x"}}
 
 
@@ -242,3 +242,19 @@ def test_yue2_main_api_uses_low_vram(monkeypatch, tmp_path):
     assert pipe.init_kwargs["low_vram"] is True and pipe.init_kwargs["offload_ar"] is False
     assert pipe.init_kwargs["vae_core_frames"] == 512
     assert engine.info()["low_vram_mode"] == "low_vram"
+
+
+def test_truncation_flags_per_phase():
+    from musicgen_ui.engine.yue2 import truncated_parts
+    assert truncated_parts({"abc": False, "semantic": False}) == []  # was wrongly shown as truncated
+    assert truncated_parts({"abc": True, "semantic": False}) == ["score"]
+    assert truncated_parts({"abc": False, "semantic": True}) == ["audio"]
+    assert truncated_parts(True) == ["unknown"] and truncated_parts(False) == []
+
+
+def test_untruncated_song_not_flagged(fake_yue2, tmp_path):
+    from musicgen_ui.engine.yue2 import YuE2Engine
+    engine = YuE2Engine(Settings(engine="yue2"))
+    result = engine.generate(compile_spec(SongSpec(lyrics="[Verse]\nhi", seed=1)), tmp_path / "out",
+                             progress=lambda *e: None, cancelled=lambda: False)
+    assert result.truncated is False and result.extra["truncated_parts"] == []

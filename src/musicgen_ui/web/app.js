@@ -213,7 +213,8 @@ function jobCard(job) {
   const took = job.started && job.finished ? Math.round(job.finished - job.started) : null;
   $(".meta", card).textContent = [`Seed ${job.request.seed}`, r.duration_s ? `${r.duration_s} s Musik` : null,
     took !== null && job.status === "done" ? `in ${took} s generiert` : null,
-    r.truncated ? "⚠ abgeschnitten (Token-Limit erreicht)" : null].filter(Boolean).join(" · ");
+    r.truncated ? `⚠ abgeschnitten (${(r.truncated_parts || []).map((p) => ({ score: "Partitur-Limit",
+      audio: "Audio-Limit ≈ 6 min" })[p] || "Token-Limit").join(", ") || "Token-Limit"} erreicht)` : null].filter(Boolean).join(" · ");
   if (job.error) $(".error", card).textContent = job.error;
 
   const actions = $(".actions", card);

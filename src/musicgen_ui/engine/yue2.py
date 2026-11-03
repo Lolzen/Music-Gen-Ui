@@ -361,9 +361,10 @@ class YuE2Engine:
         score = out_dir / "score.abc"
         return EngineResult(
             audio_path=out_dir / "audio.flac", sample_rate=song.sample_rate,
-            duration_s=float(result["audio_seconds"]), truncated=bool(result["truncated"]),
+            duration_s=float(result["audio_seconds"]), truncated=bool(truncated_parts(result["truncated"])),
             score_abc=score.read_text(encoding="utf-8") if score.exists() else None,
-            extra={"timing": result.get("timing"), "weights": result.get("weights")})
+            extra={"timing": result.get("timing"), "weights": result.get("weights"),
+                   "truncated_parts": truncated_parts(result["truncated"])})
 
 
 def _cuda_total_gib() -> float | None:
@@ -374,3 +375,11 @@ def _cuda_total_gib() -> float | None:
     if not torch.cuda.is_available():
         return None
     return torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / GIB
+
+
+def truncated_parts(value) -> list[str]:
+    """YuE2 reports truncation per phase: {"abc": bool, "semantic": bool} (older/other versions: bool)."""
+    if isinstance(value, dict):
+        names = {"abc": "score", "semantic": "audio"}
+        return [names.get(k, k) for k, v in value.items() if v]
+    return ["unknown"] if value else []

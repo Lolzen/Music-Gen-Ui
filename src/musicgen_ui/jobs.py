@@ -232,7 +232,9 @@ class JobQueue:
                 self._finish(job, "failed", describe_error(exc))
             else:
                 job.result = {"duration_s": round(result.duration_s, 2), "sample_rate": result.sample_rate,
-                              "truncated": result.truncated, "has_score": result.score_abc is not None,
+                              "truncated": result.truncated,
+                              "truncated_parts": (result.extra or {}).get("truncated_parts", []),
+                              "has_score": result.score_abc is not None,
                               "extra": _jsonable(result.extra)}
                 self._finish(job, "done")
             finally:
