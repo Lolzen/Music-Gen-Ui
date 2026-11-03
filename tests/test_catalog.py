@@ -68,7 +68,7 @@ def test_scan_classifies_models(tmp_path):
     result = catalog.scan(tmp_path)
     ckpt = {e["label"]: e for e in result["checkpoint"]}
     q4 = ckpt["yue2-lm-Q4_K_M-imat"]
-    assert q4["format"] == "gguf" and q4["engine"] == "gguf" and q4["quant"] == "Q4_K_M"
+    assert q4["format"] == "gguf" and q4["engine"] == "yue2" and q4["quant"] == "Q4_K_M"
     assert q4["architecture"] == "yue2"
     v1 = ckpt["YuE-s2-1B-general-Q4_K_M"]
     assert v1["engine"] is None and "YuE v1" in v1["note"]
@@ -93,15 +93,13 @@ def test_models_api_and_gguf_selection_message(tmp_path):
         assert c.get("/api/models").json()["selected"]["checkpoint"] == gguf["value"]
 
 
-def test_yue2_engine_refuses_gguf_clearly(tmp_path, monkeypatch):
-    import sys
-    import types
-
-    import pytest
-    from musicgen_ui.engine.yue2 import YuE2Engine
-    module = types.ModuleType("yue2")
-    module.YuE2Pipeline = object
-    monkeypatch.setitem(sys.modules, "yue2", module)
-    engine = YuE2Engine(Settings(model=str(tmp_path / "x-Q4_K_M.gguf")))
-    with pytest.raises(RuntimeError, match="GGUF-Engine"):
-        engine.load(lambda *a: None)
+def test_gguf_in_wrong_folder_and_unknown_layout(tmp_path):
+    catalog.ensure_dirs(tmp_path)
+    write_gguf(tmp_path / "yue2" / "yue2-vae-standard-f32.gguf", {"general.architecture": "yue2-vae"})
+    write_gguf(tmp_path / "vae" / "yue2-lm-q8_0.gguf", {"general.architecture": "yue2"})
+    write_gguf(tmp_path / "yue2" / "other.gguf", {"general.architecture": "edgespeak-yue2"})
+    result = catalog.scan(tmp_path)
+    notes = {e["label"]: e["note"] for e in result["checkpoint"] + result["vae"] if e["source"] == "local"}
+    assert "models/vae/" in notes["yue2-vae-standard-f32"]
+    assert "models/yue2/" in notes["yue2-lm-q8_0"]
+    assert "Unbekanntes GGUF-Layout" in notes["other"]

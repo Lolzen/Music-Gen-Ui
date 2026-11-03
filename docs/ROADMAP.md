@@ -49,7 +49,9 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 ## Phase 1b – Modelle & GGUF
 - [x] `models/`-Ordner (yue2, vae, lora) mit Picker in der UI, Erkennung von HF-Ordnern und GGUF (Quantisierung, Architektur)
 - [x] Unpassende Dateien erkennen (YuE v1, falscher Ordner, defekt)
-- [ ] GGUF-Engine (Ansatz siehe Entscheidung E10)
+- [x] GGUF-Loader in der offiziellen Pipeline (HOT-Step-Layout), Modi BF16 / Ausgewogen / Maximal, offline-fähig (E10)
+- [ ] GGUF auf der RTX 4090 messen: Tempo und VRAM pro Modus und Quantisierung
+- [ ] Optional: HOT-Step-CPP als zweite Engine (schnelle GGML-Kernels)
 
 ## Phase 2 – LoRA laden
 - [ ] LoRA-Ordner `data/loras/`, Liste in der UI, mehrere LoRAs mit eigener Stärke pro Song

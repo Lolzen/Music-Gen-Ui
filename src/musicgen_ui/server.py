@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import catalog
-from .config import BACKENDS, DEVICES, ENGINES, IDLE_PLACEMENTS, QUANTIZATIONS, Settings
+from .config import BACKENDS, DEVICES, ENGINES, GGUF_MODES, IDLE_PLACEMENTS, QUANTIZATIONS, Settings
 from .jobs import JobQueue
 from .models import YUE2_DEFAULTS, SongSpec
 from .plugins import PluginManager
@@ -72,7 +72,7 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     def get_settings():
         return {"values": settings.editable(),
                 "choices": {"engine": ENGINES, "quantization": QUANTIZATIONS,
-                            "backend": BACKENDS, "device": DEVICES, "idle_placement": IDLE_PLACEMENTS,
+                            "backend": BACKENDS, "device": DEVICES, "idle_placement": IDLE_PLACEMENTS, "gguf_mode": GGUF_MODES,
                             "vae": ["m-a-p/YuE2-Vae", "m-a-p/YuE2-Vae-legacy"]}}
 
     @app.put("/api/settings")
@@ -83,7 +83,8 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     @app.get("/api/models")
     def models():
         return {**catalog.scan(settings.models_dir),
-                "selected": {"checkpoint": settings.model, "vae": settings.vae}}
+                "selected": {"checkpoint": settings.model, "vae": settings.vae},
+                "gguf_mode": settings.gguf_mode}
 
     @app.get("/api/logs/memory")
     def memory_log():

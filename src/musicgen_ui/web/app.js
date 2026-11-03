@@ -3,7 +3,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const form = $("#song-form");
 const STATUS = { queued: "wartet", running: "läuft", done: "fertig", failed: "Fehler", cancelled: "abgebrochen" };
 const STAGES = {
-  download: "Modell herunterladen/prüfen", load: "Modell laden", score: "Partitur planen",
+  download: "Modell herunterladen/prüfen", load: "Modell laden", gguf: "GGUF laden", score: "Partitur planen",
   audio: "Audio generieren", nar: "Klangsynthese", vae: "Dekodieren",
 };
 const TOKENS_PER_SECOND = 25; // YuE2 semantic token rate
@@ -247,7 +247,8 @@ function renderEngine(e) {
   if (e.engine === "mock") {
     label.textContent = "Mock-Engine · Platzhalter-Audio";
   } else {
-    const mode = [e.info.quantization === "fp8" ? "FP8" : null, { low_vram: "Offload", offload_ar: "Offload (AR-Auslagerung)", unsupported: "Offload nicht verfügbar" }[e.info.low_vram_mode] || null,
+    const mode = [e.info.gguf ? `GGUF ${{ bf16: "BF16", balanced: "ausgewogen", max: "maximal" }[e.info.gguf_mode]}` : null,
+      e.info.quantization === "fp8" ? "FP8" : null, { low_vram: "Offload", offload_ar: "Offload (AR-Auslagerung)", unsupported: "Offload nicht verfügbar" }[e.info.low_vram_mode] || null,
       e.info.backend !== "torch" ? e.info.backend : null].filter(Boolean).join(", ");
     const extra = e.state === "loading" ? ` · ${progressText(e.progress) || "…"}` : "";
     label.textContent = `YuE2${mode ? ` (${mode})` : ""} · ${STATE[e.state] || e.state}${extra}`;
@@ -325,7 +326,7 @@ async function openSettings() {
   const { values, choices } = await api("/api/settings");
   const f = $("#settings-form").elements;
   for (const key of ["engine", "backend", "device", "memory_budget_gib", "model", "vae",
-    "idle_placement", "vram_reserve_gib", "ram_guard_gib"]) f[key].value = values[key];
+    "idle_placement", "vram_reserve_gib", "ram_guard_gib", "gguf_mode"]) f[key].value = values[key];
   f.vram_mode.value = values.quantization === "fp8" ? "fp8" : "standard";
   f.offload.checked = values.offload;
   const parts = [];
@@ -344,7 +345,7 @@ async function saveSettings() {
     engine: f.engine.value, backend: f.backend.value, device: f.device.value,
     memory_budget_gib: Number(f.memory_budget_gib.value), model: f.model.value, vae: f.vae.value,
     quantization: mode === "fp8" ? "fp8" : "none",
-    offload: f.offload.checked, idle_placement: f.idle_placement.value,
+    offload: f.offload.checked, idle_placement: f.idle_placement.value, gguf_mode: f.gguf_mode.value,
     vram_reserve_gib: Number(f.vram_reserve_gib.value), ram_guard_gib: Number(f.ram_guard_gib.value),
   };
   try {
@@ -352,6 +353,7 @@ async function saveSettings() {
     renderEngine(res.engine);
     $("#settings-dialog").close();
     refreshStatus();
+    loadModels();
   } catch (err) {
     $("#settings-error").textContent = err.message;
   }
@@ -413,8 +415,11 @@ function showModelNote() {
   for (const kind of ["checkpoint", "vae"]) {
     const value = $(`#pick-${kind}`).value;
     const entry = modelCatalog[kind].find((e) => e.value === value);
-    if (entry?.engine === "gguf") notes.push(`${entry.label}: GGUF – braucht die GGUF-Engine (in Arbeit)`);
-    else if (entry?.note) notes.push(`${entry.label}: ${entry.note}`);
+    const GGUF_MODE = { bf16: "BF16 (entpackt)", balanced: "Ausgewogen", max: "Maximal (langsam)" };
+    if (entry?.format === "gguf" && entry.engine && kind === "checkpoint") {
+      notes.push(`${entry.label}: GGUF ${entry.quant || ""} · Modus ${GGUF_MODE[modelCatalog.gguf_mode]} (⚙ Einstellungen)`);
+    }
+    if (entry?.note) notes.push(`${entry.label}: ${entry.note}`);
   }
   const skipped = [...modelCatalog.checkpoint, ...modelCatalog.vae].filter((e) => !e.engine).length;
   if (skipped) notes.push(`${skipped} Datei(en) nicht nutzbar – Details per Mauszeiger auf ⚠`);

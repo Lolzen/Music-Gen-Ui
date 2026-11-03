@@ -60,3 +60,16 @@ Diese App lädt höchstens fertige Adapter.
 Viele WebUIs auf einem Rechner brauchen getrennte Umgebungen. `install.sh` legt deshalb eine eigene Conda-Umgebung an (Python 3.12, git, ffmpeg).
 PyTorch kommt per pip aus dem offiziellen CUDA-Index, wie es YuE2 vorgibt. conda-forge-PyTorch-Builds würden von den YuE2-Pins abweichen.
 `start.sh` aktiviert die Umgebung selbst, man muss sie also nicht vorher aktivieren. Ohne die Skripte geht es mit `environment.yml` und den manuellen Schritten in der README.
+
+## E10 – GGUF über eigenen Loader in der offiziellen Pipeline
+
+GGUF-Dateien (HOT-Step-Layout) werden in die offizielle PyTorch-Pipeline geladen, statt ein fremdes Programm fernzusteuern.
+
+- Die Tensor-Namen bilden 1:1 auf `YuE2ForCausalLM`/`YuE2VAE` ab; im VAE wird die gefaltete Weight-Norm exakt zurückgerechnet.
+  Tokenizer und Konfiguration werden aus der GGUF erzeugt. YuE2 bekommt dafür ein kleines Gerüst-Verzeichnis, die Gewichte werden direkt eingesetzt.
+- Quantisierte Gewichte bleiben auf Wunsch gepackt (`QuantLinear`) und werden pro Aufruf entpackt. Die Kernels stammen aus ComfyUI-GGUF (Apache-2.0).
+- YuE2s CUDA-Graphs akzeptieren nur normale BF16-Schichten im Kompositionsteil (AR). Daher bleibt der AR-Teil im Standardmodus „Ausgewogen“ entpackt und nur der Klangteil (NAR) gepackt.
+  Der Modus „Maximal“ packt alles und erzwingt `torch-eager`.
+- Vorteil: Alle Funktionen der App (Offload, RAM-Notbremse, Protokoll, später LoRA) gelten auch für GGUF, und es ist nichts zusätzlich zu installieren.
+- HOT-Step-CPP (schnelle GGML-Kernels, eigene LoRA-Unterstützung) bleibt als optionale zweite Engine geplant, falls die Geschwindigkeit nicht reicht.
+

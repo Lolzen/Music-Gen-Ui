@@ -27,6 +27,8 @@ from .base import Cancelled, CancelledFn, EngineResult, ProgressFn
 INSTALL_HINT = "Paket 'yue2' fehlt – ./install.sh ausführen (siehe README)"
 SEMANTIC_HZ = 25
 MODEL_RAM_FALLBACK_GIB = 7.5   # YuE2-3B in BF16, used until the real file size is known
+# Rough host-RAM need of a GGUF model before it is loaded (exact value afterwards).
+GGUF_RAM_ESTIMATE_GIB = {"bf16": 7.5, "balanced": 6.0, "max": 3.5}
 OFFLOAD_VAE_FRAMES = 512        # YuE2's own default for small memory budgets
 
 
@@ -62,6 +64,7 @@ class YuE2Engine:
         self.settings = settings
         self._pipe = None
         self.api: YuE2Api | None = None
+        self.gguf_report: dict | None = None
 
     @property
     def loaded(self) -> bool:
@@ -73,6 +76,8 @@ class YuE2Engine:
                 "low_vram": s.low_vram, "quantization": s.quantization, "backend": s.backend,
                 "loaded": self.loaded, "low_vram_mode": self._low_vram_mode(),
                 "offload": s.offload, "idle_placement": s.idle_placement,
+                "gguf": self.uses_gguf, "gguf_mode": s.gguf_mode if self.uses_gguf else None,
+                "gguf_report": self.gguf_report,
                 "memory_budget_gib": self._memory_budget(),
                 "yue2": None if self.api is None else
                 {k: v for k, v in asdict(self.api).items() if k != "init_params"}}
@@ -105,6 +110,10 @@ class YuE2Engine:
         return round(budget, 2)
 
     def _model_gib(self) -> float:
+        if self.gguf_report is not None and self._pipe is not None:
+            return self.gguf_report["model_gib"]
+        if model_format(self.settings.model) == "gguf":
+            return GGUF_RAM_ESTIMATE_GIB.get(self.settings.gguf_mode, MODEL_RAM_FALLBACK_GIB)
         directory = getattr(self._pipe, "model_dir", None)
         if directory is not None:
             size = sum(f.stat().st_size for f in Path(directory).glob("*.safetensors"))
@@ -147,18 +156,69 @@ class YuE2Engine:
         except ImportError as exc:
             raise RuntimeError(INSTALL_HINT) from exc
         s = self.settings
-        gguf = [v for v in (s.model, s.vae) if model_format(v) == "gguf"]
-        if gguf:
-            raise RuntimeError(f"{Path(gguf[0]).name} ist ein GGUF-Modell – dafür ist die GGUF-Engine nötig, "
-                               "die gerade eingebaut wird. Bis dahin im Modell-Picker ein Hugging-Face-Modell wählen.")
         self.api = detect_api(YuE2Pipeline)
+        if self.uses_gguf:
+            self._load_gguf(YuE2Pipeline, progress)
+            return
         progress("download", 0, 0)
         with DownloadMonitor([s.model, s.vae], lambda size: progress("download", size, 0)):
             self._pipe = YuE2Pipeline.from_pretrained(s.model, vae=s.vae, progress=False,
                                                       **self._pipeline_kwargs())
 
+    # -- GGUF ------------------------------------------------------------------
+    @property
+    def uses_gguf(self) -> bool:
+        return model_format(self.settings.model) == "gguf" or model_format(self.settings.vae) == "gguf"
+
+    def _skeleton_dir(self, path: Path, kind: str) -> Path:
+        stat = path.stat()
+        return self.settings.data_dir / "cache" / "gguf" / f"{kind}-{path.stem}-{stat.st_size}-{int(stat.st_mtime)}"
+
+    def _load_gguf(self, pipeline_cls, progress: ProgressFn) -> None:
+        """Official pipeline from small skeleton dirs, real weights injected from GGUF."""
+        try:
+            from ..gguf_support import loader
+            from yue2.storage import resolve_model
+        except ImportError as exc:
+            raise RuntimeError("GGUF braucht die Pakete 'gguf' und 'yue2' – ./install.sh erneut ausführen") from exc
+        s = self.settings
+        if s.backend == "vllm":
+            raise RuntimeError("GGUF-Modelle laufen nicht mit dem vllm-Backend – unter ⚙ Einstellungen 'torch' wählen")
+        lm_gguf, vae_gguf = model_format(s.model) == "gguf", model_format(s.vae) == "gguf"
+        if lm_gguf and s.gguf_mode == "max" and s.quantization == "fp8":
+            raise RuntimeError("GGUF-Modus 'Maximal' und FP8 schließen sich aus – einen davon abschalten")
+        for value in (s.model, s.vae):
+            if model_format(value) == "gguf" and not Path(value).is_file():
+                raise RuntimeError(f"GGUF-Datei nicht gefunden: {value}")
+
+        progress("download", 0, 0)
+        with DownloadMonitor([v for v in (s.model, s.vae) if model_format(v) != "gguf"],
+                             lambda size: progress("download", size, 0)):
+            model_dir = (loader.make_lm_skeleton(Path(s.model), self._skeleton_dir(Path(s.model), "lm"))
+                         if lm_gguf else resolve_model(s.model))
+            vae_dir = (loader.make_vae_skeleton(Path(s.vae), self._skeleton_dir(Path(s.vae), "vae"))
+                       if vae_gguf else resolve_model(s.vae))
+        kwargs = {k: v for k, v in self._pipeline_kwargs().items() if k in self.api.init_params}
+        if lm_gguf and s.gguf_mode == "max" and kwargs.get("backend", "torch") == "torch":
+            kwargs["backend"] = "torch-eager"  # CUDA graphs need plain BF16 AR layers
+        pipe = pipeline_cls(model_dir, vae_dir, progress=False, **kwargs)
+        try:
+            if lm_gguf:
+                progress("gguf", 0, 0)
+                model, _meta, report = loader.load_lm(Path(s.model), s.gguf_mode)
+                pipe._model = model  # YuE2 skips its own loader when the model is already set
+                self.gguf_report = report.summary()
+            if vae_gguf:
+                progress("gguf", 1, 0)
+                pipe._vae, _meta = loader.load_vae(Path(s.vae))
+        except Exception:
+            pipe.close()
+            raise
+        self._pipe = pipe
+
     def unload(self) -> None:
         pipe, self._pipe = self._pipe, None
+        self.gguf_report = None
         if pipe is not None:
             pipe.close()  # drops model/VAE and empties the CUDA cache
             del pipe

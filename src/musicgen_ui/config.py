@@ -21,15 +21,16 @@ BACKENDS = ("torch", "torch-eager", "vllm")
 DEVICES = ("auto", "cuda", "cpu", "mps", "xpu")
 # Where the model rests between songs: host RAM (YuE2 default), VRAM, or fully unloaded.
 IDLE_PLACEMENTS = ("ram", "gpu", "unload")
+GGUF_MODES = ("bf16", "balanced", "max")
 
 # Settings the UI may change and persist.
 EDITABLE = ("engine", "model", "vae", "device", "quantization", "backend", "memory_budget_gib",
-            "offload", "idle_placement", "vram_reserve_gib", "ram_guard_gib")
+            "offload", "idle_placement", "vram_reserve_gib", "ram_guard_gib", "gguf_mode")
 
 _ENV = {
     "engine": "MGU_ENGINE", "model": "MGU_MODEL", "vae": "MGU_VAE", "device": "MGU_DEVICE",
     "offload": "MGU_OFFLOAD", "low_vram": "MGU_LOW_VRAM", "idle_placement": "MGU_IDLE",
-    "vram_reserve_gib": "MGU_VRAM_RESERVE_GIB", "ram_guard_gib": "MGU_RAM_GUARD_GIB", "quantization": "MGU_QUANTIZATION", "backend": "MGU_BACKEND",
+    "vram_reserve_gib": "MGU_VRAM_RESERVE_GIB", "gguf_mode": "MGU_GGUF_MODE", "ram_guard_gib": "MGU_RAM_GUARD_GIB", "quantization": "MGU_QUANTIZATION", "backend": "MGU_BACKEND",
     "memory_budget_gib": "MGU_MEMORY_BUDGET_GIB", "host": "MGU_HOST", "port": "MGU_PORT",
     "mock_delay": "MGU_MOCK_DELAY",
 }
@@ -77,6 +78,7 @@ class Settings:
     idle_placement: str = "ram"      # where the model rests between songs
     vram_reserve_gib: float = 3.0    # VRAM kept free for desktop/other programs (YuE2 itself keeps >= 2)
     ram_guard_gib: float = 2.0       # emergency stop below this much free RAM (0 = off)
+    gguf_mode: str = "balanced"      # GGUF models: bf16 | balanced | max (see gguf_support/loader.py)
 
     @property
     def low_vram(self) -> bool:  # backwards-compatible name
@@ -112,7 +114,7 @@ class Settings:
             values.setdefault("offload", values.pop("low_vram"))
         values = {k: v for k, v in values.items() if k in EDITABLE}
         checks = {"engine": ENGINES, "quantization": QUANTIZATIONS, "backend": BACKENDS, "device": DEVICES,
-                  "idle_placement": IDLE_PLACEMENTS}
+                  "idle_placement": IDLE_PLACEMENTS, "gguf_mode": GGUF_MODES}
         for key, allowed in checks.items():
             if key in values and values[key] not in allowed:
                 raise ValueError(f"{key} muss eines von {', '.join(allowed)} sein")

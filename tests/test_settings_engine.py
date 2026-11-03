@@ -65,7 +65,8 @@ def test_settings_api_persists_and_switches_engine(tmp_path):
 
 
 def test_settings_blocked_while_generating(tmp_path):
-    with make_client(tmp_path, delay=1.5) as c:
+    with make_client(tmp_path, delay=5) as c:
+        c.get("/api/status")  # warm-up: the first call may import torch (slow)
         job = c.post("/api/jobs", json={"lyrics": "[Verse]\nla", "seed": 1}).json()[0]
         for _ in range(50):
             if c.get(f"/api/jobs/{job['id']}").json()["status"] == "running":

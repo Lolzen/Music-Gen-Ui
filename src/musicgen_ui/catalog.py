@@ -22,6 +22,7 @@ SUBDIRS = {"checkpoint": "yue2", "vae": "vae", "lora": "lora"}
 HUB_CHECKPOINTS = ["m-a-p/YuE2-3B"]
 HUB_VAES = ["m-a-p/YuE2-Vae", "m-a-p/YuE2-Vae-legacy"]
 HF_MODEL_TYPES = {"checkpoint": "yue2", "vae": "yue2_vae"}
+GGUF_ARCHS = {"checkpoint": "yue2", "vae": "yue2-vae"}  # HOT-Step-CPP layout
 
 README = """Modell-Ordner von Music-Gen-UI
 ==============================
@@ -52,7 +53,7 @@ class ModelEntry:
     value: str              # what goes into the settings (hub id or path)
     source: str             # hub | local
     format: str             # hf | gguf | safetensors
-    engine: str | None      # engine that can run it: "yue2" (PyTorch) | "gguf" | None (unusable)
+    engine: str | None      # engine that can run it: "yue2" (PyTorch, also GGUF) | None (unusable)
     size_gib: float | None = None
     quant: str | None = None
     architecture: str | None = None
@@ -118,7 +119,7 @@ def _quant_from(meta: dict, name: str) -> str | None:
 
 def _gguf_entry(path: Path, kind: str, root: Path) -> ModelEntry:
     entry = ModelEntry(id=f"local:{path.relative_to(root)}", kind=kind, label=path.stem, value=str(path.resolve()),
-                       source="local", format="gguf", engine="gguf", size_gib=round(path.stat().st_size / 2**30, 2))
+                       source="local", format="gguf", engine=None, size_gib=round(path.stat().st_size / 2**30, 2))
     try:
         meta = read_gguf_metadata(path)
     except (OSError, ValueError, struct.error) as exc:
@@ -128,11 +129,24 @@ def _gguf_entry(path: Path, kind: str, root: Path) -> ModelEntry:
     entry.quant = _quant_from(meta, path.name)
     entry.meta = {k: v for k, v in meta.items() if k.startswith("general.") and not isinstance(v, list)}
     name = f"{meta.get('general.name', '')} {path.name}".lower()
-    if entry.architecture == "llama" and "yue" in name and ("yue2" not in name):
+    expected = GGUF_ARCHS[kind]
+    if entry.architecture == "llama" and "yue" in name and "yue2" not in name:
         entry.engine = None
-        entry.note = ("YuE v1 (Vorgänger), z.B. Stage-2-Modell – passt nicht zu YuE2 und erzeugt allein keine Songs")
-    elif entry.quant and entry.quant.startswith(("Q2", "IQ1", "IQ2")):
-        entry.note = "sehr starke Quantisierung – deutlicher Qualitätsverlust zu erwarten"
+        entry.note = "YuE v1 (Vorgänger), z.B. Stage-2-Modell – passt nicht zu YuE2 und erzeugt allein keine Songs"
+    elif entry.architecture in GGUF_ARCHS.values() and entry.architecture != expected:
+        other = next(k for k, v in GGUF_ARCHS.items() if v == entry.architecture)
+        entry.engine = None
+        entry.note = f"Das ist ein {'VAE' if other == 'vae' else 'Checkpoint'} – gehört nach models/{SUBDIRS[other]}/"
+    elif entry.architecture != expected:
+        entry.engine = None
+        entry.note = (f"Unbekanntes GGUF-Layout '{entry.architecture}'. Unterstützt: YuE2-GGUFs im HOT-Step-Layout "
+                      "(z.B. scragnog/YuE2-GGUF)")
+    else:
+        entry.engine = "yue2"
+        if entry.quant and entry.quant.startswith(("Q2", "IQ1", "IQ2", "IQ3")):
+            entry.note = "sehr starke Quantisierung – deutlicher Qualitätsverlust zu erwarten"
+        elif entry.quant and entry.quant.startswith(("NVFP4", "MXFP4")):
+            entry.note = "FP4-Variante – laut Hersteller schlechter als Q3_K_M"
     return entry
 
 

@@ -130,7 +130,32 @@ Dateien, die nicht passen, erscheinen ausgegraut mit ⚠. Der Grund steht im Too
 - ein Checkpoint im `vae/`-Ordner
 - beschädigte Dateien
 
-**GGUF** (quantisierte Modelle): Sie werden erkannt und mit Quantisierung und Größe angezeigt. Die GGUF-Engine zum Ausführen ist in Arbeit.
+### GGUF (quantisierte Modelle)
+
+Unterstützt werden YuE2-GGUFs im Layout von HOT-Step-CPP, z.B. [scragnog/YuE2-GGUF](https://huggingface.co/scragnog/YuE2-GGUF).
+Sie laufen in der offiziellen YuE2-Pipeline, deshalb funktionieren Offload, RAM-Notbremse und Speicher-Protokoll ganz normal. Herunterladen, z.B.:
+
+```bash
+hf download scragnog/YuE2-GGUF yue2-lm-q8_0.gguf --local-dir models/yue2
+```
+```bash
+hf download scragnog/YuE2-GGUF yue2-vae-standard-f32.gguf --local-dir models/vae
+```
+
+- **Checkpoint:** `yue2-lm-*.gguf` gehört nach `models/yue2/`. Der Hersteller empfiehlt `q8_0` (praktisch verlustfrei). Ab Q4 abwärts sinkt die Klangqualität stärker.
+- **VAE:** `yue2-vae-*.gguf` gehört nach `models/vae/`. Alternativ einfach das offizielle `m-a-p/YuE2-Vae` wählen.
+- Tokenizer und Konfiguration stecken in der GGUF-Datei. GGUF-Modelle laufen also komplett offline.
+
+**GGUF-Modus** (⚙ Einstellungen → Speicher & Offload):
+
+| Modus | Komponieren (AR) | Klang (NAR) | Tempo | VRAM |
+|---|---|---|---|---|
+| **Ausgewogen** (Standard) | entpackt | bleibt gepackt | fast wie BF16 | Q8: ca. 1,3 GB weniger, Q4: ca. 2 GB weniger |
+| BF16 | entpackt | entpackt | volle Geschwindigkeit | wie das Original |
+| Maximal | gepackt | gepackt | Komponieren deutlich langsamer (ohne CUDA-Graphs) | ca. 3–5 GB weniger |
+
+Nicht unterstützt sind GGUFs in anderen Layouts (z.B. LattifAI/EdgeSpeak) und Modelle des Vorgängers YuE v1. Sie erscheinen ausgegraut.
+Die Entpack-Routinen stammen aus [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (Apache-2.0, siehe `licenses/`).
 
 ## Speicher & Offload
 
