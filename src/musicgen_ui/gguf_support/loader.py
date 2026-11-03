@@ -55,8 +55,17 @@ _ATTN = {"q": "q_proj", "k": "k_proj", "v": "v_proj", "output": "o_proj", "q_nor
 _FFN = {"gate": "gate_proj", "up": "up_proj", "down": "down_proj"}
 
 
+_HF_NAME = re.compile(r"^(model\.(embed_tokens|norm|layers\.\d+\.[\w.]+)|lm_head|vae2llm|llm2vae|"
+                      r"time_embedder\.mlp\.\d)\.(weight|bias)$|^latent_pos_embed\.pe$")
+
+
 def lm_hf_name(name: str) -> str | None:
-    """GGUF tensor name → ``YuE2ForCausalLM`` state-dict key (None if unknown)."""
+    """GGUF tensor name → ``YuE2ForCausalLM`` state-dict key (None if unknown).
+
+    Two layouts exist: HOT-Step-CPP renames (``blk.N.attn_q``), yue2.cpp keeps the
+    original names (``model.layers.N.self_attn.q_proj.weight``)."""
+    if _HF_NAME.match(name):
+        return name
     if name in _LM_FIXED:
         return _LM_FIXED[name]
     match = _LM_BLOCK.match(name)
@@ -201,6 +210,10 @@ def write_tiktoken(reader: gguf.GGUFReader, target: Path) -> None:
 
 def lm_config(meta: dict):
     from yue2.modeling_yue2 import YuE2Config
+    if meta.get("yue2.config_json"):  # yue2.cpp stores the original config.json
+        config = json.loads(meta["yue2.config_json"])
+        config["torch_dtype"] = "bfloat16"
+        return YuE2Config(**{k: v for k, v in config.items() if k not in ("dtype",)})
 
     def get(key, default=None):
         value = meta.get(f"yue2.{key}", default)

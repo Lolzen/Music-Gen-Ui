@@ -103,3 +103,11 @@ def test_gguf_in_wrong_folder_and_unknown_layout(tmp_path):
     assert "models/vae/" in notes["yue2-vae-standard-f32"]
     assert "models/yue2/" in notes["yue2-lm-q8_0"]
     assert "Unbekanntes GGUF-Layout" in notes["other"]
+
+
+def test_yue2cpp_vae_flagged(tmp_path):
+    catalog.ensure_dirs(tmp_path)
+    write_gguf(tmp_path / "vae" / "YuE2-Vae-F32.gguf", {"general.architecture": "yue2-vae",
+                                                        "yue2-vae.sampling_rate": 48000})
+    entry = next(e for e in catalog.scan(tmp_path)["vae"] if e["source"] == "local")
+    assert entry["engine"] is None and "yue2.cpp" in entry["note"]

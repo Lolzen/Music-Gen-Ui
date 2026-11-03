@@ -143,6 +143,8 @@ def _quant_from(meta: dict, name: str) -> str | None:
     file_type = meta.get("general.file_type")
     if isinstance(file_type, int) and file_type in GGUF_FILE_TYPES:
         return GGUF_FILE_TYPES[file_type]
+    if isinstance(file_type, str) and file_type.strip():  # yue2.cpp writes the name, e.g. "Q8_0"
+        return file_type.strip().upper()
     match = _QUANT_IN_NAME.search(name)
     return match.group(1).upper() if match else None
 
@@ -171,8 +173,14 @@ def _gguf_entry(path: Path, kind: str, root: Path) -> ModelEntry:
         entry.engine = None
         entry.note = (f"Unbekanntes GGUF-Layout '{entry.architecture}'. Unterstützt: YuE2-GGUFs im HOT-Step-Layout "
                       "(z.B. scragnog/YuE2-GGUF)")
+    elif kind == "vae" and any(k.startswith("yue2-vae.") for k in meta):
+        entry.engine = None
+        entry.note = ("VAE im yue2.cpp-Layout – wird noch nicht unterstützt. Bis dahin das offizielle m-a-p/YuE2-Vae "
+                      "oder die HOT-Step-VAE (scragnog/YuE2-GGUF) wählen")
     else:
         entry.engine = "yue2"
+        if "yue2.config_json" in meta:
+            entry.note = "yue2.cpp-Layout (z.B. Serveurperso/YuE2-GGUF)"
         if entry.quant and entry.quant.startswith(("Q2", "IQ1", "IQ2", "IQ3")):
             entry.note = "sehr starke Quantisierung – deutlicher Qualitätsverlust zu erwarten"
         elif entry.quant and entry.quant.startswith(("NVFP4", "MXFP4")):

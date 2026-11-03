@@ -51,7 +51,9 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 - [x] Unpassende Dateien erkennen (YuE v1, falscher Ordner, defekt)
 - [x] GGUF-Loader in der offiziellen Pipeline (HOT-Step-Layout), Modi BF16 / Ausgewogen / Maximal, offline-fähig (E10)
 - [ ] GGUF auf der RTX 4090 messen: Tempo und VRAM pro Modus und Quantisierung
-- [ ] Optional: HOT-Step-CPP als zweite Engine (schnelle GGML-Kernels)
+- [x] Checkpoints im yue2.cpp-Layout (Serveurperso/YuE2-GGUF: Originalnamen, `yue2.config_json`)
+- [ ] VAE im yue2.cpp-Layout (DAC-Namen `decoder.block.N.conv_t1` …)
+- [ ] Optional: zweite Engine mit schnellen GGML-Kernels – Kandidaten HOT-Step-CPP oder [yue2.cpp](https://github.com/ServeurpersoCom/yue2.cpp) (CUDA/Vulkan, eigener Server)
 
 ## Phase 2 – LoRA laden ✅
 - [x] `models/lora/`, Picker im Song-Formular, mehrere LoRAs mit eigener Stärke pro Song
@@ -94,6 +96,7 @@ Orientierung an Music Maker: Spuren untereinander, Clips per Drag & Drop.
 - [ ] Remote-/Multi-GPU-Worker (z.B. YuE2-Turbo-Server)
 
 ## Ideen-Sammelbecken (TBA)
+- **Modell-Browser:** Hugging Face nach YuE2-Modellen, GGUFs und LoRAs durchsuchen (es gibt viele: https://huggingface.co/models?search=yue2), Layout/Lizenz anzeigen, direkt nach `models/` laden (ähnlich Civitai-Browsern in Bild-UIs)
 - Lyrics-Helfer: Silben pro Zeile, Reime, Abschnittsstruktur prüfen
 - „Rezept“ exportieren/importieren (Anfrage + Konfiguration → exakt reproduzierbar)
 - Benachrichtigung, wenn ein Song fertig ist

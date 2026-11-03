@@ -161,7 +161,9 @@ hf download scragnog/YuE2-GGUF yue2-vae-standard-f32.gguf --local-dir models/vae
 | BF16 | entpackt | entpackt | volle Geschwindigkeit | wie das Original |
 | Maximal | gepackt | gepackt | Komponieren deutlich langsamer (ohne CUDA-Graphs) | ca. 3–5 GB weniger |
 
-Nicht unterstützt sind GGUFs in anderen Layouts (z.B. LattifAI/EdgeSpeak) und Modelle des Vorgängers YuE v1. Sie erscheinen ausgegraut.
+Ebenfalls unterstützt werden **Checkpoints im yue2.cpp-Layout**, z.B. [Serveurperso/YuE2-GGUF](https://huggingface.co/Serveurperso/YuE2-GGUF) (`YuE2-3B-Q8_0.gguf` usw.).
+Deren VAE-Datei hat ein eigenes Layout und wird noch nicht unterstützt. Dafür das offizielle `m-a-p/YuE2-Vae` wählen.
+Nicht unterstützt sind GGUFs in anderen Layouts (z.B. LattifAI/EdgeSpeak) und Modelle des Vorgängers YuE v1. Sie erscheinen ausgegraut, der Grund steht im Tooltip.
 Die Entpack-Routinen stammen aus [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) (Apache-2.0, siehe `licenses/`).
 
 ## LoRAs verwenden

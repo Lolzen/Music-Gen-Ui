@@ -393,3 +393,46 @@ def test_engine_applies_lora_per_song(tiny_lm, tiny_vae, tmp_path):
     engine.generate(request, tmp_path / "b", progress=lambda *e: None, cancelled=lambda: False)
     assert engine.info()["loras"] == []
     assert not torch.equal(engine._pipe._model.model.layers[0].self_attn.q_proj.weight, weight)  # LoRA removed
+
+
+# ---------------------------------------------------------------- yue2.cpp layout (Serveurperso/YuE2-GGUF)
+@pytest.fixture(scope="module")
+def tiny_lm_cpp(tiny_lm, tmp_path_factory):
+    """Same tiny model in the yue2.cpp layout: original names, config as JSON, file_type as string."""
+    import json
+    model, _ = tiny_lm
+    path = tmp_path_factory.mktemp("cpp") / "YuE2-3B-Q8_0.gguf"
+    writer = gguf.GGUFWriter(str(path), "yue2")
+    writer.add_string("yue2.config_json", json.dumps({**model.config.to_dict(), "dtype": "bfloat16"}))
+    writer.add_uint32("yue2.block_count", model.config.num_hidden_layers)
+    writer.add_string("general.file_type", "Q8_0")
+    writer.add_tokenizer_model("gpt2")
+    writer.add_token_list(synthetic_vocab())
+    for key, tensor in model.state_dict().items():
+        value = tensor.float().numpy()
+        if value.ndim == 2 and value.shape[1] % 32 == 0 and key.endswith(".weight") and key != "latent_pos_embed.pe":
+            writer.add_tensor(key, gguf.quants.quantize(value, Q.Q8_0), raw_dtype=Q.Q8_0)
+        else:
+            writer.add_tensor(key, value)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    return path
+
+
+def test_yue2cpp_layout_loads(tiny_lm, tiny_lm_cpp, tmp_path):
+    from musicgen_ui import catalog
+    original, _ = tiny_lm
+    model, _, report = loader.load_lm(tiny_lm_cpp, "balanced")
+    assert report.quantized and model.config.hidden_size == TINY["hidden_size"]
+    x = torch.randn(2, 64, dtype=torch.bfloat16)
+    torch.testing.assert_close(model.model.layers[1].self_attn.q_proj(x).float(),
+                               original.model.layers[1].self_attn.q_proj(x).float(), atol=0.05, rtol=0.05)
+    skeleton = loader.make_lm_skeleton(tiny_lm_cpp, tmp_path / "skel")
+    assert (skeleton / "qwen.tiktoken").is_file()
+    root = tmp_path / "models"
+    catalog.ensure_dirs(root)
+    (root / "yue2" / tiny_lm_cpp.name).write_bytes(tiny_lm_cpp.read_bytes())
+    entry = next(e for e in catalog.scan(root)["checkpoint"] if e["format"] == "gguf")
+    assert entry["engine"] == "yue2" and entry["quant"] == "Q8_0" and "yue2.cpp" in entry["note"]
