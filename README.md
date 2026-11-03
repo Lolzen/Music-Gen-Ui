@@ -154,11 +154,18 @@ Läuft der VRAM trotzdem voll, entlädt die App das Modell automatisch. Der näc
 2. **Kernel-Meldungen**, falls ein Log-Dienst läuft. Unter runit ist das z.B. `socklog` (Void) oder `syslog-ng`/`metalog` (Artix):
 
    ```bash
-   sudo grep -r -h -i -E "out of memory|oom-kill|NVRM|Xid" /var/log/ 2>/dev/null | tail -n 30
+   sudo grep -r -h -a -E "Out of memory: Killed process|invoked oom-killer|NVRM: Xid|NVRM: GPU at" /var/log/ 2>/dev/null | tail -n 30
    ```
 
-   - `oom-kill` / `Out of memory`: Arbeitsspeicher voll
-   - `NVRM` / `Xid`: Grafiktreiber/VRAM
+   - `Out of memory: Killed process` / `invoked oom-killer`: Arbeitsspeicher voll
+   - `NVRM: Xid …`: Fehler von Grafiktreiber/GPU. Die Zahl nach der PCI-Adresse ist der Fehlercode, z.B. 31 = Speicherzugriffsfehler, 79 = GPU nicht mehr erreichbar
+   - Die normale Boot-Zeile `NVRM: loading NVIDIA …` ist **kein** Fehler
+
+   Ob überhaupt Meldungen aus früheren Sitzungen gespeichert werden, zeigt dieser Befehl. Er zählt die Boot-Zeilen des Treibers; ab 2 werden ältere Sitzungen aufbewahrt:
+
+   ```bash
+   sudo grep -r -h -a -c "NVRM: loading NVIDIA" /var/log/ 2>/dev/null | paste -sd+ | bc
+   ```
 
    Findet der Befehl nichts, werden Kernel-Meldungen nicht dauerhaft gespeichert und sind nach dem Neustart weg.
    Unter Void Linux lässt sich das so einschalten (andere Distributionen: einen Syslog-Dienst installieren):
