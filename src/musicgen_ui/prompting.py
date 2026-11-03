@@ -46,6 +46,7 @@ class CompiledRequest:
     semantic_sampling: dict | None = None
     sections: list[Section] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    loras: list[dict] = field(default_factory=list)  # [{"path", "strength"}], applied by the engine
 
     def engine_kwargs(self) -> dict:
         """Keyword arguments for ``YuE2Pipeline.__call__``."""
@@ -177,4 +178,5 @@ def compile_spec(spec: SongSpec, *, seed: int | None = None, request_id: str | N
         semantic_sampling=spec.audio_sampling.overrides(),
         sections=sections,
         warnings=warnings,
+        loras=[{"path": ref.path, "strength": ref.strength} for ref in spec.loras],
     )

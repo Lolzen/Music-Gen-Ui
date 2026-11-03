@@ -65,6 +65,9 @@ class YuE2Engine:
         self._pipe = None
         self.api: YuE2Api | None = None
         self.gguf_report: dict | None = None
+        self.lora_state = None          # musicgen_ui.lora.LoraState once a LoRA was used
+        self._adapters: dict = {}       # path -> (mtime, Adapter)
+        self._source = None
 
     @property
     def loaded(self) -> bool:
@@ -78,6 +81,7 @@ class YuE2Engine:
                 "offload": s.offload, "idle_placement": s.idle_placement,
                 "gguf": self.uses_gguf, "gguf_mode": s.gguf_mode if self.uses_gguf else None,
                 "gguf_report": self.gguf_report,
+                "loras": list(self.lora_state.signature) if self.lora_state else [],
                 "memory_budget_gib": self._memory_budget(),
                 "yue2": None if self.api is None else
                 {k: v for k, v in asdict(self.api).items() if k != "init_params"}}
@@ -216,9 +220,42 @@ class YuE2Engine:
             raise
         self._pipe = pipe
 
+    # -- LoRA --------------------------------------------------------------------
+    def _adapter(self, path: str, dims: dict):
+        from ..lora import read_adapter
+        file = Path(path)
+        if not file.is_file():
+            raise RuntimeError(f"LoRA nicht gefunden: {path}")
+        key = (file.stat().st_mtime, tuple(sorted(dims.items())))
+        cached = self._adapters.get(path)
+        if cached is None or cached[0] != key:
+            cached = (key, read_adapter(file, dims))
+            self._adapters[path] = cached
+        return cached[1]
+
+    def _apply_loras(self, refs: list[dict], progress: ProgressFn) -> None:
+        if not refs and (self.lora_state is None or not self.lora_state.signature):
+            return
+        if self.settings.backend == "vllm":
+            raise RuntimeError("LoRAs funktionieren nicht mit dem vllm-Backend – unter ⚙ Einstellungen 'torch' wählen")
+        from ..lora import LoraState, gguf_source, hf_source
+        pipe = self._pipe
+        model = pipe._model if getattr(pipe, "_model", None) is not None else pipe._load_model(for_nar=True)
+        if self._source is None:
+            self._source = (gguf_source(Path(self.settings.model)) if model_format(self.settings.model) == "gguf"
+                            else hf_source(Path(pipe.model_dir)))
+        self.lora_state = self.lora_state or LoraState()
+        c = model.config
+        dims = {"q": c.num_attention_heads * c.head_dim, "kv": c.num_key_value_heads * c.head_dim,
+                "ff": c.intermediate_size}
+        adapters = [(self._adapter(ref["path"], dims), float(ref.get("strength", 1.0))) for ref in refs]
+        progress("lora", 0, 0)
+        self.lora_state.apply(model, adapters, self._source)
+
     def unload(self) -> None:
         pipe, self._pipe = self._pipe, None
         self.gguf_report = None
+        self.lora_state, self._source = None, None
         if pipe is not None:
             pipe.close()  # drops model/VAE and empties the CUDA cache
             del pipe
@@ -235,6 +272,7 @@ class YuE2Engine:
             if counts[phase] % SEMANTIC_HZ == 0:  # ~ once per second of music
                 progress(names.get(phase, phase), counts[phase], 0)
 
+        self._apply_loras(request.loras or [], progress)
         call = {**request.engine_kwargs(), "cancelled": cancelled, "on_token": on_token}
         if self.api.stage_progress:
             call["on_progress"] = lambda stage, done, total: progress(stage, done, total)

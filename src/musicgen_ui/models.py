@@ -51,6 +51,11 @@ class SamplingSettings(BaseModel):
         return data or None
 
 
+class LoraRef(BaseModel):
+    path: str = Field(..., max_length=2000)   # file in models/lora (or any path)
+    strength: float = Field(1.0, ge=0, le=2)
+
+
 class SongSpec(BaseModel):
     title: str = Field("Untitled", max_length=120)
     style: str = Field("", max_length=1000)
@@ -70,3 +75,4 @@ class SongSpec(BaseModel):
     audio_sampling: SamplingSettings = Field(default_factory=SamplingSettings)
     # Generate several takes with consecutive seeds and pick the best one.
     candidates: int = Field(1, ge=1, le=8)
+    loras: list[LoraRef] = Field(default_factory=list, max_length=8)

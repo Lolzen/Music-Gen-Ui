@@ -201,17 +201,29 @@ def _hf_entry(path: Path, kind: str, root: Path) -> ModelEntry | None:
 
 
 def _lora_entry(path: Path, root: Path) -> ModelEntry:
-    sidecar = path.with_name("lora.json")
     meta = {}
-    if sidecar.is_file():
-        try:
-            meta = json.loads(sidecar.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            meta = {}
-    return ModelEntry(id=f"local:{path.relative_to(root)}", kind="lora", label=meta.get("name") or path.stem,
-                      value=str(path.resolve()), source="local", format="safetensors", engine=None,
-                      size_gib=round(path.stat().st_size / 2**30, 3), meta=meta,
-                      note="LoRA-Loader folgt (Roadmap Phase 2)")
+    for sidecar in (path.with_suffix(".json"), path.with_name("lora.json")):
+        if sidecar.is_file():
+            try:
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
+                break
+            except (OSError, json.JSONDecodeError):
+                meta = {}
+    entry = ModelEntry(id=f"local:{path.relative_to(root)}", kind="lora", label=meta.get("name") or path.stem,
+                       value=str(path.resolve()), source="local", format=path.suffix.lstrip("."), engine="yue2",
+                       size_gib=round(path.stat().st_size / 2**30, 3), meta=meta)
+    try:
+        from .lora import inspect_adapter
+        info = inspect_adapter(path)
+    except Exception as exc:  # noqa: BLE001 - unreadable files are listed with a reason
+        info = {"format": None, "note": f"nicht lesbar: {exc}"}
+    entry.architecture = info.get("format")
+    entry.meta = {**{"halves": info.get("halves", []), "trigger": info.get("trigger")}, **meta}
+    if path.suffix == ".safetensors" and info.get("format") is None:
+        entry.engine, entry.note = None, info.get("note")
+    elif info.get("note"):
+        entry.note = info["note"]
+    return entry
 
 
 def _hub_entry(repo: str, kind: str) -> ModelEntry:
@@ -242,7 +254,7 @@ def _scan(root: Path, kind: str) -> list[ModelEntry]:
         if any(part.startswith(".") for part in path.relative_to(folder).parts):
             continue
         if kind == "lora":
-            if path.suffix == ".safetensors" and path.is_file():
+            if path.suffix in (".safetensors", ".pt") and path.is_file():
                 entries.append(_lora_entry(path, root))
         elif path.suffix.lower() == ".gguf" and path.is_file():
             entries.append(_gguf_entry(path, kind, root))

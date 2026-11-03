@@ -129,6 +129,7 @@ class QuantLinear(nn.Module):
         self.in_features, self.out_features, self.qtype = in_features, out_features, qtype
         self.qweight = nn.Parameter(packed.view(torch.uint8).reshape(out_features, -1), requires_grad=False)
         self.bias = None if bias is None else nn.Parameter(bias, requires_grad=False)
+        self.adapters: list = []  # LoRA side paths (A [r,in], B [out,r], scale), see musicgen_ui.lora
 
     def dequantized(self, dtype: torch.dtype) -> torch.Tensor:
         # fp16 matches the format of the block scales and is fast on GPUs; fp32 on CPU.
@@ -136,7 +137,11 @@ class QuantLinear(nn.Module):
         return dequantize(self.qweight, self.qtype, (self.out_features, self.in_features), dtype=compute).to(dtype)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(x, self.dequantized(x.dtype), self.bias)
+        out = F.linear(x, self.dequantized(x.dtype), self.bias)
+        for A, B, scale in self.adapters:  # packed weights cannot absorb a LoRA, so add it on the side
+            low = F.linear(x.float(), A.to(x.device, torch.float32))
+            out = out + (F.linear(low, B.to(x.device, torch.float32)) * scale).to(out.dtype)
+        return out
 
     def extra_repr(self) -> str:
         return f"in={self.in_features}, out={self.out_features}, gguf={self.qtype.name}"

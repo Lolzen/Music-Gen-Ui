@@ -118,3 +118,10 @@ fieldset.memory label.check input { margin-top: 0.25rem; }
 .memprognose { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed var(--line); }
 @media (max-width: 900px) { .memwidget { min-width: 0; width: 100%; } }
 .membar .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); opacity: 0.55; }
+
+/* --- LoRA rows ---------------------------------------------------------- */
+.lora { align-items: center; margin-bottom: 0.4rem; }
+.lora .lora-name { font-weight: 600; }
+.lora .lora-strength { width: 8rem; }
+.lora .lora-value { width: 2.6rem; font-size: 0.8rem; color: var(--muted); }
+.halfbadge { font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--chip); margin-left: 0.2rem; }

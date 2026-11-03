@@ -50,6 +50,54 @@ function nextVoiceId() {
   return `v${Date.now() % 1000}`;
 }
 
+// ---------------------------------------------------------------- LoRAs
+const HALF_LABEL = { ar: "Komposition", nar: "Klang" };
+
+function loraEntry(path) {
+  return modelCatalog?.lora.find((e) => e.value === path);
+}
+
+function addLoraRow(path, strength = 1, { fromUser = false } = {}) {
+  if ([...document.querySelectorAll("#loras .lora")].some((r) => r.dataset.path === path)) return;
+  const entry = loraEntry(path);
+  const node = $("#lora-template").content.firstElementChild.cloneNode(true);
+  node.dataset.path = path;
+  $(".lora-name", node).textContent = entry?.label || path.split("/").pop();
+  const halves = entry?.meta?.halves || [];
+  $(".lora-halves", node).innerHTML = halves.map((h) => `<span class="halfbadge">${HALF_LABEL[h] || h}</span>`).join("");
+  const slider = $(".lora-strength", node);
+  slider.value = strength;
+  $(".lora-value", node).textContent = Number(strength).toFixed(2);
+  slider.addEventListener("input", () => { $(".lora-value", node).textContent = Number(slider.value).toFixed(2); });
+  $(".lora-remove", node).addEventListener("click", () => { node.remove(); schedulePreview(); });
+  $("#loras").append(node);
+  if (fromUser) {
+    const trigger = entry?.meta?.trigger;
+    const style = form.elements.style;
+    if (trigger && !style.value.toLowerCase().includes(trigger.toLowerCase())) {
+      style.value = style.value.trim() ? `${trigger}, ${style.value.trim()}` : trigger;
+    }
+    const recommended = entry?.meta?.recommended || {};
+    if (recommended.plan_mode || halves.includes("ar")) form.elements.plan_mode.value = recommended.plan_mode || "off";
+  }
+  schedulePreview();
+}
+
+function fillLoraPicker() {
+  const select = $("#lora-pick");
+  const entries = modelCatalog?.lora || [];
+  select.innerHTML = entries.length ? "" : '<option value="">– models/lora/ ist leer –</option>';
+  for (const e of entries) {
+    const o = document.createElement("option");
+    o.value = e.value;
+    const halves = (e.meta?.halves || []).map((h) => HALF_LABEL[h] || h).join("+");
+    o.textContent = `${e.label}${halves ? ` · ${halves}` : ""}${e.engine ? "" : " ⚠"}`;
+    o.disabled = !e.engine;
+    o.title = e.note || "";
+    select.append(o);
+  }
+}
+
 // ---------------------------------------------------------------- form <-> spec
 function sampling(prefix) {
   const out = {};
@@ -82,6 +130,8 @@ function readSpec() {
     cfg_scale: f.cfg_scale.disabled ? null : Number(f.cfg_scale.value),
     audio_sampling: sampling("audio"),
     candidates: Number(f.candidates.value) || 1,
+    loras: [...document.querySelectorAll("#loras .lora")].map((r) => ({
+      path: r.dataset.path, strength: Number($(".lora-strength", r).value) })),
   };
 }
 
@@ -102,6 +152,7 @@ function writeSpec(spec) {
     .forEach((k) => set(k, spec[k]));
   if (spec.instrumental !== undefined) f.instrumental.checked = spec.instrumental;
   if (spec.voices) { $("#voices").innerHTML = ""; spec.voices.forEach(addVoice); }
+  if (spec.loras) { $("#loras").innerHTML = ""; spec.loras.forEach((l) => addLoraRow(l.path, l.strength)); }
   if ("cfg_scale" in spec) setSlider("cfg_scale", spec.cfg_scale);
   if (spec.audio_sampling) {
     setSlider("audio_temperature", spec.audio_sampling.temperature);
@@ -543,6 +594,7 @@ async function loadModels() {
   fillPicker($("#pick-checkpoint"), modelCatalog.checkpoint, modelCatalog.selected.checkpoint, "models/yue2");
   fillPicker($("#pick-vae"), modelCatalog.vae, modelCatalog.selected.vae, "models/vae");
   $("#models-refresh").title = `Modell-Ordner neu einlesen (${modelCatalog.root})`;
+  fillLoraPicker();
   showModelNote();
 }
 
@@ -572,6 +624,10 @@ async function init() {
   $("#pick-checkpoint").addEventListener("change", () => pickModel("checkpoint"));
   $("#pick-vae").addEventListener("change", () => pickModel("vae"));
   $("#models-refresh").addEventListener("click", loadModels);
+  $("#lora-add").addEventListener("click", () => {
+    const path = $("#lora-pick").value;
+    if (path) addLoraRow(path, 1, { fromUser: true });
+  });
 
   for (const name of info.sections) {
     const b = document.createElement("button");

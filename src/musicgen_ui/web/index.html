@@ -63,6 +63,17 @@
       <textarea name="lyrics" rows="12" placeholder="[Verse]&#10;…&#10;&#10;[Chorus]&#10;…"></textarea>
     </fieldset>
 
+    <fieldset>
+      <legend>LoRAs</legend>
+      <div id="loras"></div>
+      <div class="row">
+        <select id="lora-pick" class="grow"></select>
+        <button type="button" id="lora-add" class="ghost">+ LoRA</button>
+      </div>
+      <p class="hint">Dateien aus <code>models/lora/</code>. <strong>Komposition</strong>-LoRAs (z.B. eigene Artist-LoRAs) wurden
+        ohne Partitur trainiert – beim Hinzufügen wird der Plan-Modus auf „off“ gestellt. <strong>Klang</strong>-LoRAs verändern nur den Sound.</p>
+    </fieldset>
+
     <details>
       <summary>Feinsteuerung</summary>
       <div class="grid">
@@ -222,6 +233,16 @@
     <span class="memlabel"></span>
     <div class="membar"><div class="fill"></div><div class="pred"></div></div>
     <span class="memtext"></span>
+  </div>
+</template>
+
+<template id="lora-template">
+  <div class="lora row">
+    <span class="lora-name grow"></span>
+    <span class="lora-halves"></span>
+    <input class="lora-strength" type="range" min="0" max="1.5" step="0.05" value="1" title="Stärke">
+    <output class="lora-value">1.00</output>
+    <button type="button" class="lora-remove ghost" title="Entfernen">✕</button>
   </div>
 </template>
 

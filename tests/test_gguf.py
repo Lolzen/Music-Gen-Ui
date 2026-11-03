@@ -248,3 +248,146 @@ def test_engine_generates_song_from_gguf(tiny_lm, tiny_vae, tmp_path, mode):
     assert info["gguf"] and info["gguf_report"]["quantized_modules"] > 0
     engine.unload()
     assert not engine.loaded
+
+
+# ---------------------------------------------------------------- LoRA (formats, merge/restore, side path)
+def _random_lowrank(module, rank, gen):
+    A = torch.randn(rank, module.in_features, generator=gen) * 0.05
+    B = torch.randn(module.out_features, rank, generator=gen) * 0.05
+    return A, B
+
+
+def _write_ms(path, model, prefix, rank=4, extra=None):
+    from safetensors.torch import save_file
+    gen = torch.Generator().manual_seed(7)
+    tensors, deltas = {}, {}
+    for i, layer in enumerate(model.model.layers):
+        for block, names in ((f"{prefix}self_attn", ("q_proj", "k_proj", "v_proj", "o_proj")),
+                             (f"{prefix}mlp", ("gate_proj", "up_proj", "down_proj"))):
+            for name in names:
+                mod = layer.get_submodule(f"{block}.{name}")
+                A, B = _random_lowrank(mod, rank, gen)
+                tensors[f"layers.{i}.{block}.{name}.lora_A"], tensors[f"layers.{i}.{block}.{name}.lora_B"] = A, B
+                deltas[f"model.layers.{i}.{block}.{name}"] = B @ A
+    tensors.update(extra or {})
+    save_file(tensors, str(path), metadata={"rank": str(rank)})
+    return deltas
+
+
+@pytest.fixture
+def hf_tiny(tiny_lm, tmp_path):
+    """Tiny model saved like an HF YuE2 folder (source for exact restore)."""
+    from safetensors.torch import save_file
+    from musicgen_ui.lora import hf_source
+    model, _ = tiny_lm
+    save_file({k: v.contiguous() for k, v in model.state_dict().items()}, str(tmp_path / "model.safetensors"))
+    import copy
+    return copy.deepcopy(model), hf_source(tmp_path)
+
+
+def test_lora_merge_and_exact_restore(hf_tiny, tmp_path):
+    from musicgen_ui.lora import LoraState, read_adapter
+    model, source = hf_tiny
+    before = {k: v.clone() for k, v in model.state_dict().items()}
+    deltas = _write_ms(tmp_path / "artist.safetensors", model, "")
+    adapter = read_adapter(tmp_path / "artist.safetensors", {"q": 64, "kv": 32, "ff": 128})
+    assert adapter.format == "mothersuperior" and adapter.halves == ["ar"] and adapter.rank == 4
+    state = LoraState()
+    state.apply(model, [(adapter, 0.5)], source)
+    key = "model.layers.1.mlp.up_proj"
+    expected = (before[f"{key}.weight"].float() + 0.5 * deltas[key]).to(torch.bfloat16)
+    torch.testing.assert_close(model.get_submodule(key).weight, expected)
+    assert not state.apply(model, [(adapter, 0.5)], source)["changed"]  # unchanged selection is free
+    state.apply(model, [], source)
+    for k, v in model.state_dict().items():
+        assert torch.equal(v, before[k]), k  # bit-exact restore
+
+
+def test_lora_formats_are_equivalent(hf_tiny, tmp_path):
+    """Mothersuperior, ComfyUI (fused, alpha) and .pt describe the same delta."""
+    from safetensors.torch import save_file
+    from musicgen_ui.lora import read_adapter
+    model, _ = hf_tiny
+    dims = {"q": 64, "kv": 32, "ff": 128}
+    deltas = _write_ms(tmp_path / "ms.safetensors", model, "nar_",
+                       extra={"vae2llm.weight": torch.zeros_like(model.vae2llm.weight).float(),
+                              "vae2llm.bias": torch.zeros_like(model.vae2llm.bias).float()})
+    ms = read_adapter(tmp_path / "ms.safetensors", dims)
+    assert ms.halves == ["nar"] and "vae2llm.weight" in ms.replacements
+    # ComfyUI: fuse q|k|v and gate|up block-diagonally, store alpha = rank_total (scale 1.0)
+    comfy = {}
+    for i in range(len(model.model.layers)):
+        for fused, parts in (("self_attn.qkv_proj", ("nar_self_attn.q_proj", "nar_self_attn.k_proj", "nar_self_attn.v_proj")),
+                             ("mlp.gate_up_proj", ("nar_mlp.gate_proj", "nar_mlp.up_proj"))):
+            downs = [ms.deltas[f"model.layers.{i}.{p}"].A for p in parts]
+            ups = [ms.deltas[f"model.layers.{i}.{p}"].B for p in parts]
+            r = sum(d.shape[0] for d in downs)
+            up = torch.zeros(sum(u.shape[0] for u in ups), r)
+            row = col = 0
+            for d, u in zip(downs, ups):
+                up[row:row + u.shape[0], col:col + d.shape[0]] = u
+                row, col = row + u.shape[0], col + d.shape[0]
+            base = f"diffusion_model.model.layers.{i}.{fused}"
+            comfy[f"{base}.lora_down.weight"], comfy[f"{base}.lora_up.weight"] = torch.cat(downs), up
+            comfy[f"{base}.alpha"] = torch.tensor(float(r))
+        for proj in ("self_attn.o_proj", "mlp.down_proj"):
+            d = ms.deltas[f"model.layers.{i}.nar_{proj}"]
+            base = f"diffusion_model.model.layers.{i}.{proj}"
+            comfy[f"{base}.lora_down.weight"], comfy[f"{base}.lora_up.weight"] = d.A, d.B * 2
+            comfy[f"{base}.alpha"] = torch.tensor(d.A.shape[0] / 2)  # alpha/rank = 0.5 compensates the ×2
+    save_file(comfy, str(tmp_path / "x_comfyui.safetensors"))
+    cf = read_adapter(tmp_path / "x_comfyui.safetensors", dims)
+    assert cf.format == "comfyui" and cf.halves == ["nar"]
+    for module, delta in deltas.items():
+        got = cf.deltas[module]
+        torch.testing.assert_close((got.B @ got.A) * got.scale, delta, atol=1e-5, rtol=1e-5)
+    # Mothersuperior .pt checkpoint (layer-major list) loads safely and identically
+    order = []
+    for i in range(len(model.model.layers)):
+        for block, names in (("nar_self_attn", ("q_proj", "k_proj", "v_proj", "o_proj")),
+                             ("nar_mlp", ("gate_proj", "up_proj", "down_proj"))):
+            order += [ms.deltas[f"model.layers.{i}.{block}.{n}"] for n in names]
+    torch.save({"lora": [t for d in order for t in (d.A, d.B)], "rank": 4,
+                "io": {"vae2llm": {"weight": torch.zeros(1), "bias": torch.zeros(1)}}}, tmp_path / "nar.pt")
+    pt = read_adapter(tmp_path / "nar.pt", dims)
+    assert pt.halves == ["nar"] and len(pt.deltas) == len(ms.deltas)
+
+
+def test_lora_side_path_on_packed_layers(tiny_lm, tmp_path):
+    from musicgen_ui.lora import LoraState, gguf_source, read_adapter
+    original, path = tiny_lm
+    model, _, _ = loader.load_lm(path, "balanced")
+    _write_ms(tmp_path / "nar.safetensors", original, "nar_")
+    adapter = read_adapter(tmp_path / "nar.safetensors", {"q": 64, "kv": 32, "ff": 128})
+    q = model.model.layers[0].nar_mlp.up_proj
+    x = torch.randn(2, q.in_features, dtype=torch.bfloat16)
+    plain = q(x)
+    state = LoraState()
+    state.apply(model, [(adapter, 1.0)], gguf_source(path))
+    d = adapter.deltas["model.layers.0.nar_mlp.up_proj"]
+    torch.testing.assert_close(q(x).float(), plain.float() + (x.float() @ (d.B @ d.A).T), atol=0.05, rtol=0.05)
+    state.apply(model, [], gguf_source(path))
+    assert not q.adapters and torch.equal(q(x), plain)
+
+
+def test_engine_applies_lora_per_song(tiny_lm, tiny_vae, tmp_path):
+    from musicgen_ui.config import Settings
+    from musicgen_ui.engine.yue2 import YuE2Engine
+    from musicgen_ui.models import SongSpec
+    from musicgen_ui.prompting import compile_spec
+    original, lm_path = tiny_lm
+    _, vae_path = tiny_vae
+    _write_ms(tmp_path / "artist.safetensors", original, "")
+    engine = YuE2Engine(Settings(model=str(lm_path), vae=str(vae_path), device="cpu", gguf_mode="balanced",
+                                 data_dir=tmp_path / "data"))
+    spec = SongSpec(style="pop", lyrics="[Verse]\nla", seed=1, plan_mode="off", audio_sampling={"max_tokens": 8},
+                    loras=[{"path": str(tmp_path / "artist.safetensors"), "strength": 0.8}])
+    request = compile_spec(spec)
+    request.semantic_sampling["min_tokens"] = 4
+    engine.generate(request, tmp_path / "a", progress=lambda *e: None, cancelled=lambda: False)
+    assert engine.info()["loras"] == [(str(tmp_path / "artist.safetensors"), 0.8)]
+    weight = engine._pipe._model.model.layers[0].self_attn.q_proj.weight.clone()
+    request.loras = []
+    engine.generate(request, tmp_path / "b", progress=lambda *e: None, cancelled=lambda: False)
+    assert engine.info()["loras"] == []
+    assert not torch.equal(engine._pipe._model.model.layers[0].self_attn.q_proj.weight, weight)  # LoRA removed
