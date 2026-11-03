@@ -9,12 +9,13 @@ from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import BACKENDS, DEVICES, ENGINES, QUANTIZATIONS, Settings
+from .config import BACKENDS, DEVICES, ENGINES, IDLE_PLACEMENTS, QUANTIZATIONS, Settings
 from .jobs import JobQueue
 from .models import YUE2_DEFAULTS, SongSpec
 from .plugins import PluginManager
 from .prompting import KNOWN_SECTIONS
 from .runtime import Busy, EngineManager
+from .memory import ram_status
 from .system import gpu_status
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -62,14 +63,14 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     @app.get("/api/status")
     def status():
         running = queue.running
-        return {"engine": manager.status(), "gpu": gpu_status(),
+        return {"engine": manager.status(), "gpu": gpu_status(), "ram": ram_status(),
                 "running_job": running.id if running else None}
 
     @app.get("/api/settings")
     def get_settings():
         return {"values": settings.editable(),
                 "choices": {"engine": ENGINES, "quantization": QUANTIZATIONS,
-                            "backend": BACKENDS, "device": DEVICES,
+                            "backend": BACKENDS, "device": DEVICES, "idle_placement": IDLE_PLACEMENTS,
                             "vae": ["m-a-p/YuE2-Vae", "m-a-p/YuE2-Vae-legacy"]}}
 
     @app.put("/api/settings")

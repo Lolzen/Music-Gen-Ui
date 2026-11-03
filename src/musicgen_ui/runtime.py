@@ -13,8 +13,9 @@ import time
 from pathlib import Path
 
 from .config import Settings, vllm_installed, yue2_installed
-from .engine import Engine, EngineResult, create_engine
+from .engine import Cancelled, Engine, EngineResult, create_engine
 from .engine.base import CancelledFn, ProgressFn
+from .memory import InsufficientMemory, RamGuard, available_gib, is_oom
 from .prompting import CompiledRequest
 
 log = logging.getLogger(__name__)
@@ -117,15 +118,51 @@ class EngineManager:
         finally:
             self._lock.release()
 
+    def check_ram(self) -> None:
+        """Refuse to start a song that would push host RAM below the guard limit."""
+        limit = self.settings.ram_guard_gib
+        free = available_gib()
+        if limit <= 0 or free is None:
+            return
+        needed = self.engine.ram_needed_gib() + limit
+        if free < needed:
+            raise InsufficientMemory(
+                f"Zu wenig freier Arbeitsspeicher: {free:.1f} GB frei, für diesen Song werden ca. "
+                f"{needed:.1f} GB gebraucht (Modell + {limit:.1f} GB Sicherheitsreserve). "
+                "Andere Programme schließen (z.B. andere WebUIs) oder die RAM-Notbremse in den Einstellungen anpassen.")
+
     def generate(self, request: CompiledRequest, out_dir: Path, *,
                  progress: ProgressFn, cancelled: CancelledFn) -> EngineResult:
-        """Blocking; waits for a running load to finish."""
+        """Blocking; waits for a running load to finish.
+
+        Memory protection: RAM pre-check, RAM watchdog (emergency stop), cleanup
+        after CUDA OOM, and moving the model to its idle placement afterwards.
+        """
         with self._lock:
+            self.check_ram()
             self._load_locked(progress)
             self._set("busy")
+            guard = RamGuard(self.settings.ram_guard_gib)
             try:
-                return self.engine.generate(request, out_dir, progress=progress, cancelled=cancelled)
+                with guard:
+                    try:
+                        return self.engine.generate(request, out_dir, progress=progress,
+                                                    cancelled=lambda: cancelled() or guard.tripped)
+                    except Cancelled:
+                        if guard.tripped:
+                            raise InsufficientMemory(guard.message) from None
+                        raise
+            except Exception as exc:
+                if guard.tripped or is_oom(exc):
+                    log.warning("Freeing the model after memory error: %s", exc)
+                    self.engine.unload()
+                raise
             finally:
+                try:
+                    if self.engine.loaded:
+                        self.engine.after_job(self.settings.idle_placement)
+                except Exception:  # noqa: BLE001 - never mask the job result
+                    log.exception("Idle placement failed")
                 if self._state == "busy":
                     self._set("ready" if self.engine.loaded else "unloaded")
 

@@ -88,3 +88,7 @@ dialog { max-width: min(90vw, 60rem); width: 100%; border: 1px solid var(--line)
 .banner code { color: var(--text); }
 #settings-dialog h2 { font-size: 1.05rem; margin-top: 0; }
 #settings-dialog .row { justify-content: flex-end; margin-top: 0.8rem; }
+
+.bar > div.danger { background: var(--error); }
+fieldset.memory label.check { align-items: flex-start; }
+fieldset.memory label.check input { margin-top: 0.25rem; }

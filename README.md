@@ -62,7 +62,7 @@ Danach http://127.0.0.1:7860 öffnen. `start.sh` aktiviert die Conda-Umgebung se
 | `--host 0.0.0.0` | im Heimnetz erreichbar machen (ohne Login, nur in vertrauenswürdigen Netzen!) |
 | `--port 7861` | anderer Port, falls 7860 schon von einer anderen WebUI belegt ist |
 | `--preload` | Modell direkt beim Start laden statt beim ersten Song |
-| `--fp8` / `--low-vram` | VRAM-Modus für diesen Start |
+| `--fp8` / `--offload` | FP8 bzw. Offload für diesen Start (siehe [Speicher & Offload](#speicher--offload)) |
 | `--engine mock` | Testmodus ohne Modell |
 
 Andere Umgebung verwenden: `MGU_CONDA_ENV=meine-env ./start.sh`
@@ -91,16 +91,16 @@ music-gen-ui
 ## Bedienung
 
 **Oben rechts** steht der Modellstatus: *nicht geladen* → *lädt* (mit Download-Fortschritt beim ersten Mal) → *bereit* → *generiert*.
-Daneben zeigt die Leiste, wie viel Grafikspeicher belegt ist. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
+Daneben zeigen zwei Leisten, wie viel Grafikspeicher (VRAM) und Arbeitsspeicher (RAM) belegt sind; die RAM-Leiste wird ab 90 % rot. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
 
 **⚙ Einstellungen** (werden in `data/settings.json` gespeichert):
 
 | Einstellung | Empfehlung RTX 4090 |
 |---|---|
 | Engine | *Automatisch*: nimmt YuE2, falls installiert |
-| VRAM-Modus | *Standard*. Bei „Grafikspeicher voll“: erst *FP8*, dann *Low-VRAM* |
-| Backend | *torch*. *vllm* ist schneller (Installation mit `--fast`), aber mit Low-VRAM nicht kombinierbar |
-| Speicherbudget | 24 GiB |
+| VRAM-Modus | *Standard*. *FP8* spart VRAM (experimentell) |
+| Backend | *torch*. *vllm* ist schneller (Installation mit `--fast`), aber nicht mit Offload kombinierbar |
+| Speicher & Offload | siehe nächster Abschnitt |
 | Modell / VAE | Standard. `YuE2-Vae-legacy` ist nur für Vergleiche mit den offiziellen Benchmarks gedacht |
 
 Während der Generierung zeigt jeder Job seine Phase:
@@ -112,6 +112,39 @@ Während der Generierung zeigt jeder Job seine Phase:
 | Klangsynthese → Dekodieren | Das fertige Audio entsteht (48 kHz Stereo, FLAC) |
 
 Ein Song ist auf ca. 6 Minuten begrenzt. „⚠ abgeschnitten“ heißt, dass dieses Limit erreicht wurde.
+
+## Speicher & Offload
+
+Ein Song mit YuE2 braucht zwei Arten Speicher:
+- **VRAM:** rund 20 GB in der Spitze
+- **RAM:** YuE2 parkt das Modell (ca. 7,5 GB) zum Dekodieren und zwischen Songs im Arbeitsspeicher
+
+Wird eins von beiden knapp, kann der ganze Rechner einfrieren. Das gilt besonders, wenn Linux anfängt zu swappen oder die Grafikkarte auch den Bildschirm betreibt.
+Unter **⚙ Einstellungen → Speicher & Offload**:
+
+| Einstellung | Wirkung | Kosten |
+|---|---|---|
+| **Offload aktivieren** | Während der Klangsynthese liegt der nicht benötigte Modellteil im RAM. Das Dekodieren läuft in kleineren Stücken. | langsamer, mehr RAM |
+| **Modell zwischen Songs** | *RAM* (Standard): VRAM ist zwischen Songs frei. *VRAM*: schnellster Start, VRAM bleibt belegt. *entladen*: spart ca. 7,5 GB RAM, jeder Song lädt neu. | – |
+| **VRAM-Reserve** (Standard 3 GB) | So viel VRAM bleibt für Desktop/Browser frei. YuE2 bricht lieber mit einer Fehlermeldung ab, als den Bildschirm auszuhungern. | YuE2 hat weniger VRAM |
+| **RAM-Notbremse** (Standard 2 GB) | Prüft vor jedem Song, ob genug RAM frei ist. Fällt der freie RAM während des Songs unter die Grenze, wird abgebrochen und das Modell entladen. | – |
+
+Läuft der VRAM trotzdem voll, entlädt die App das Modell automatisch. Der nächste Song startet dann sauber.
+
+**Empfehlung, wenn das System schon einmal eingefroren ist:**
+1. *RAM-Notbremse* an lassen (2 GB)
+2. *VRAM-Reserve* 3–4 GB
+3. Bei wenig RAM (≤ 16 GB): *Modell zwischen Songs → entladen*
+4. Reicht das nicht: *Offload* einschalten, danach *FP8*
+
+**Ursache herausfinden** (nach einem Neustart, bezieht sich auf den vorherigen Systemstart):
+
+```bash
+journalctl -k -b -1 | grep -i -E "out of memory|oom-kill|NVRM|Xid"
+```
+
+- `oom-kill` / `Out of memory`: Der Arbeitsspeicher war voll. *Entladen* und die RAM-Notbremse helfen.
+- `NVRM` / `Xid`: ein Problem mit Grafiktreiber oder VRAM. VRAM-Reserve erhöhen, *Offload* oder *FP8* wählen.
 
 ## Lyrics-Syntax
 
@@ -148,7 +181,10 @@ Umgebungsvariablen überschreiben die gespeicherten Einstellungen. Das ist prakt
 | `MGU_HOST` / `MGU_PORT` | `127.0.0.1` / `7860` | Server-Adresse |
 | `MGU_MODEL` / `MGU_VAE` | `m-a-p/YuE2-3B` / `m-a-p/YuE2-Vae` | Checkpoints (auch lokale Ordner) |
 | `MGU_DEVICE` | `auto` | `cuda`, `cpu`, … |
-| `MGU_LOW_VRAM` | `0` | YuE2 `low_vram` |
+| `MGU_OFFLOAD` | `0` | Offload ein/aus (alter Name `MGU_LOW_VRAM` geht weiter) |
+| `MGU_IDLE` | `ram` | Modell zwischen Songs: `ram`, `gpu`, `unload` |
+| `MGU_VRAM_RESERVE_GIB` | `3` | VRAM, der für Desktop/andere Programme frei bleibt |
+| `MGU_RAM_GUARD_GIB` | `2` | RAM-Notbremse (0 = aus) |
 | `MGU_QUANTIZATION` | `none` | `none` oder `fp8` (braucht Compute Capability ≥ 8.9; RTX 40xx erfüllt das) |
 | `MGU_BACKEND` | `torch` | `torch`, `torch-eager`, `vllm` |
 | `MGU_PLUGIN_DIRS` | `plugins` | Plugin-Ordner (mit `:` getrennt) |
@@ -158,7 +194,8 @@ Umgebungsvariablen überschreiben die gespeicherten Einstellungen. Das ist prakt
 | Problem | Lösung |
 |---|---|
 | Banner „YuE2 ist nicht installiert“ | `./install.sh` (ohne `--mock`) ausführen |
-| „Grafikspeicher voll“ / OutOfMemory | Andere GPU-Programme schließen (z.B. andere WebUIs mit geladenem Modell), dann VRAM-Modus *FP8* oder *Low-VRAM* wählen |
+| „Grafikspeicher voll“ / OutOfMemory | Das Modell wird automatisch entladen. Dann *Offload* einschalten, ggf. *FP8*, andere GPU-Programme schließen |
+| System friert ein / muss neu gestartet werden | Siehe [Speicher & Offload](#speicher--offload) |
 | `yue2 doctor` meldet Fehler | Treiber/CUDA-Version prüfen (`nvidia-smi`), notfalls `./install.sh --cuda cu126` |
 | Port belegt | `./start.sh --port 7861` |
 | `unexpected keyword argument 'low_vram'` o.ä. | Behoben: Die App erkennt jetzt die installierte YuE2-Version (siehe unten) |
@@ -170,7 +207,7 @@ Standard ist das offizielle Release **`yue2-v0.1.6`**. Neuere Commits auf YuE2-`
 
 | Funktion | Release `yue2-v0.1.6` | YuE2 `main` |
 |---|---|---|
-| VRAM-Modus *Low-VRAM* | wird als „AR-Auslagerung“ (`offload_ar`) umgesetzt; spart weniger | echtes `low_vram` |
+| *Offload* | wird als „AR-Auslagerung“ (`offload_ar`) umgesetzt; spart weniger | echtes `low_vram` (nur der aktive Modellteil liegt im VRAM) |
 | Fortschritt Klangsynthese/Dekodieren | nicht verfügbar; die Anzeige bleibt bis zum Ende bei „Audio generieren“ | mit Prozentanzeige |
 
 Die neuere Version installierst du mit `./install.sh --yue2-ref main`. Das ist unveröffentlichter Code, also nur bei Bedarf nutzen.

@@ -39,6 +39,12 @@ class Engine(Protocol):
     def unload(self) -> None:
         """Release the model and free (V)RAM."""
 
+    def after_job(self, placement: str) -> None:
+        """Move the model where it should rest between songs ("ram" | "gpu" | "unload")."""
+
+    def ram_needed_gib(self) -> float:
+        """Extra host RAM the next song may need (e.g. loading or parking the model)."""
+
     def generate(self, request: CompiledRequest, out_dir: Path, *,
                  progress: ProgressFn, cancelled: CancelledFn) -> EngineResult: ...
 

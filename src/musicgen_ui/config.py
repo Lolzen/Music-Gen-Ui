@@ -19,13 +19,17 @@ ENGINES = ("auto", "yue2", "mock")
 QUANTIZATIONS = ("none", "fp8")
 BACKENDS = ("torch", "torch-eager", "vllm")
 DEVICES = ("auto", "cuda", "cpu", "mps", "xpu")
+# Where the model rests between songs: host RAM (YuE2 default), VRAM, or fully unloaded.
+IDLE_PLACEMENTS = ("ram", "gpu", "unload")
 
 # Settings the UI may change and persist.
-EDITABLE = ("engine", "model", "vae", "device", "low_vram", "quantization", "backend", "memory_budget_gib")
+EDITABLE = ("engine", "model", "vae", "device", "quantization", "backend", "memory_budget_gib",
+            "offload", "idle_placement", "vram_reserve_gib", "ram_guard_gib")
 
 _ENV = {
     "engine": "MGU_ENGINE", "model": "MGU_MODEL", "vae": "MGU_VAE", "device": "MGU_DEVICE",
-    "low_vram": "MGU_LOW_VRAM", "quantization": "MGU_QUANTIZATION", "backend": "MGU_BACKEND",
+    "offload": "MGU_OFFLOAD", "low_vram": "MGU_LOW_VRAM", "idle_placement": "MGU_IDLE",
+    "vram_reserve_gib": "MGU_VRAM_RESERVE_GIB", "ram_guard_gib": "MGU_RAM_GUARD_GIB", "quantization": "MGU_QUANTIZATION", "backend": "MGU_BACKEND",
     "memory_budget_gib": "MGU_MEMORY_BUDGET_GIB", "host": "MGU_HOST", "port": "MGU_PORT",
     "mock_delay": "MGU_MOCK_DELAY",
 }
@@ -64,10 +68,19 @@ class Settings:
     model: str = "m-a-p/YuE2-3B"
     vae: str = "m-a-p/YuE2-Vae"
     device: str = "auto"
-    low_vram: bool = False
     quantization: str = "none"
     backend: str = "torch"
     memory_budget_gib: float = 24.0
+
+    # Memory protection / offload
+    offload: bool = False            # park the idle model half in RAM during each phase (slower, less VRAM)
+    idle_placement: str = "ram"      # where the model rests between songs
+    vram_reserve_gib: float = 3.0    # VRAM kept free for desktop/other programs (YuE2 itself keeps >= 2)
+    ram_guard_gib: float = 2.0       # emergency stop below this much free RAM (0 = off)
+
+    @property
+    def low_vram(self) -> bool:  # backwards-compatible name
+        return self.offload
 
     # Mock engine: seconds of simulated work per job (0 for tests).
     mock_delay: float = 2.0
@@ -93,24 +106,36 @@ class Settings:
 
     def update(self, values: dict) -> None:
         """Validate and apply editable values (raises ValueError)."""
+        values = dict(values)
+        if "low_vram" in values:  # old name of the offload switch (settings.json, env, CLI)
+            values.setdefault("offload", values.pop("low_vram"))
         values = {k: v for k, v in values.items() if k in EDITABLE}
-        checks = {"engine": ENGINES, "quantization": QUANTIZATIONS, "backend": BACKENDS, "device": DEVICES}
+        checks = {"engine": ENGINES, "quantization": QUANTIZATIONS, "backend": BACKENDS, "device": DEVICES,
+                  "idle_placement": IDLE_PLACEMENTS}
         for key, allowed in checks.items():
             if key in values and values[key] not in allowed:
                 raise ValueError(f"{key} muss eines von {', '.join(allowed)} sein")
         for key in ("model", "vae"):
             if key in values and (not isinstance(values[key], str) or not values[key].strip()):
                 raise ValueError(f"{key} darf nicht leer sein")
-        if "low_vram" in values:
-            values["low_vram"] = bool(values["low_vram"])
+        if "offload" in values:
+            values["offload"] = bool(values["offload"])
+        for key, low, high in (("vram_reserve_gib", 0, 64), ("ram_guard_gib", 0, 64)):
+            if key in values:
+                value = float(values[key])
+                if not low <= value <= high:
+                    raise ValueError(f"{key} muss zwischen {low} und {high} liegen")
+                values[key] = value
         if "memory_budget_gib" in values:
             budget = float(values["memory_budget_gib"])
             if not 4 <= budget <= 1024:
                 raise ValueError("memory_budget_gib muss zwischen 4 und 1024 liegen")
             values["memory_budget_gib"] = budget
         merged = {**self.editable(), **values}
-        if merged["low_vram"] and merged["backend"] == "vllm":
-            raise ValueError("low_vram funktioniert nicht mit dem vllm-Backend")
+        if merged["offload"] and merged["backend"] == "vllm":
+            raise ValueError("Offload funktioniert nicht mit dem vllm-Backend")
+        if merged["offload"] and merged["idle_placement"] == "gpu":
+            raise ValueError("Mit Offload kann das Modell zwischen Songs nicht im VRAM bleiben – 'RAM' oder 'entladen' wählen")
         for key, value in values.items():
             setattr(self, key, value.strip() if isinstance(value, str) else value)
 
@@ -134,9 +159,9 @@ class Settings:
             raw = env.get(var)
             if raw is None:
                 continue
-            kind = types[key]  # string annotations (from __future__ import annotations)
+            kind = types.get(key, "bool")  # string annotations; low_vram is a bool alias
             value = {"bool": _bool, "int": int, "float": float}.get(kind, str)(raw)
-            if key in EDITABLE:
+            if key in EDITABLE or key == "low_vram":
                 s.update({key: value})
             else:
                 setattr(s, key, value)

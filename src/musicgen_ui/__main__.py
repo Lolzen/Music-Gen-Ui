@@ -16,13 +16,14 @@ def main() -> None:
     parser.add_argument("--engine", choices=ENGINES, help="auto = YuE2 falls installiert, sonst Mock")
     parser.add_argument("--host", help="z.B. 0.0.0.0 für Zugriff aus dem Netzwerk")
     parser.add_argument("--port", type=int)
-    parser.add_argument("--low-vram", action="store_true", default=None)
+    parser.add_argument("--offload", "--low-vram", dest="offload", action="store_true", default=None,
+                        help="Offload: ungenutzte Modellteile in den RAM auslagern (weniger VRAM, langsamer)")
     parser.add_argument("--fp8", action="store_true", default=None, help="experimentelles FP8 (ab RTX 40xx)")
     parser.add_argument("--preload", action="store_true", help="Modell direkt beim Start laden")
     args = parser.parse_args()
 
     settings = Settings.load(args.data_dir)
-    overrides = {"engine": args.engine, "low_vram": args.low_vram,
+    overrides = {"engine": args.engine, "offload": args.offload,
                  "quantization": "fp8" if args.fp8 else None}
     settings.update({k: v for k, v in overrides.items() if v is not None})
     if args.host:

@@ -210,10 +210,13 @@ class JobQueue:
 
 
 def describe_error(exc: Exception) -> str:
+    from .memory import InsufficientMemory, is_oom
+    if isinstance(exc, InsufficientMemory):
+        return str(exc)
     text = f"{type(exc).__name__}: {exc}"
-    if "OutOfMemory" in type(exc).__name__ or "out of memory" in str(exc).lower():
-        text += (" → Grafikspeicher voll. In den Einstellungen VRAM-Modus 'FP8' oder 'Low-VRAM' wählen, "
-                 "andere GPU-Programme schließen oder max_tokens reduzieren.")
+    if is_oom(exc):
+        text += (" → Grafikspeicher voll. Das Modell wurde entladen. Unter ⚙ Einstellungen → Speicher "
+                 "'Offload' einschalten, VRAM-Modus 'FP8' wählen oder andere GPU-Programme schließen.")
     return text
 
 

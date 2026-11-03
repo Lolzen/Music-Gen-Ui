@@ -13,18 +13,20 @@ package and only passes what it accepts.
 """
 from __future__ import annotations
 
-import gc
 import inspect
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ..config import Settings
 from ..download import DownloadMonitor
+from ..memory import GIB, free_cuda_cache
 from ..prompting import CompiledRequest
 from .base import Cancelled, CancelledFn, EngineResult, ProgressFn
 
 INSTALL_HINT = "Paket 'yue2' fehlt – ./install.sh ausführen (siehe README)"
 SEMANTIC_HZ = 25
+MODEL_RAM_FALLBACK_GIB = 7.5   # YuE2-3B in BF16, used until the real file size is known
+OFFLOAD_VAE_FRAMES = 512        # YuE2's own default for small memory budgets
 
 
 @dataclass(frozen=True)
@@ -69,12 +71,14 @@ class YuE2Engine:
         return {"engine": self.name, "model": s.model, "vae": s.vae, "device": s.device,
                 "low_vram": s.low_vram, "quantization": s.quantization, "backend": s.backend,
                 "loaded": self.loaded, "low_vram_mode": self._low_vram_mode(),
+                "offload": s.offload, "idle_placement": s.idle_placement,
+                "memory_budget_gib": self._memory_budget(),
                 "yue2": None if self.api is None else
                 {k: v for k, v in asdict(self.api).items() if k != "init_params"}}
 
     def _low_vram_mode(self) -> str | None:
-        """How the low-VRAM setting is realised by the installed YuE2."""
-        if not self.settings.low_vram:
+        """How the offload setting is realised by the installed YuE2."""
+        if not self.settings.offload:
             return None
         if self.api is None or self.api.low_vram:
             return "low_vram"
@@ -83,11 +87,56 @@ class YuE2Engine:
     def _pipeline_kwargs(self) -> dict:
         s = self.settings
         kwargs = {"device": s.device, "quantization": s.quantization, "backend": s.backend,
-                  "memory_budget_gib": s.memory_budget_gib}
+                  "memory_budget_gib": self._memory_budget()}
         mode = self._low_vram_mode()
         if mode in ("low_vram", "offload_ar"):
             kwargs[mode] = True
+            kwargs["vae_core_frames"] = OFFLOAD_VAE_FRAMES  # decode in smaller pieces
         return {k: v for k, v in kwargs.items() if k in self.api.init_params}
+
+    def _memory_budget(self) -> float:
+        """YuE2 caps PyTorch at ``budget - 2 GiB``; derive the budget from our VRAM reserve."""
+        s = self.settings
+        budget = s.memory_budget_gib
+        total = _cuda_total_gib() if s.device in ("auto", "cuda") else None
+        if total:
+            budget = min(budget, total - max(s.vram_reserve_gib, 2.0) + 2.0)
+        return round(budget, 2)
+
+    def _model_gib(self) -> float:
+        directory = getattr(self._pipe, "model_dir", None)
+        if directory is not None:
+            size = sum(f.stat().st_size for f in Path(directory).glob("*.safetensors"))
+            if size:
+                return size / GIB
+        return MODEL_RAM_FALLBACK_GIB
+
+    def _model_device(self) -> str | None:
+        model = getattr(self._pipe, "_model", None)
+        if model is None:
+            return None
+        try:
+            return next(model.parameters()).device.type
+        except (StopIteration, AttributeError):
+            return None
+
+    def ram_needed_gib(self) -> float:
+        # Loading goes through host RAM, and YuE2 parks the model in RAM for decoding.
+        # If it already rests in RAM, moving it to the GPU frees that space again.
+        return 0.0 if self._model_device() == "cpu" else self._model_gib()
+
+    def after_job(self, placement: str) -> None:
+        if self._pipe is None:
+            return
+        if placement == "unload":
+            self.unload()
+            return
+        target = "cpu" if placement == "ram" else getattr(self._pipe, "device", None)
+        for name in ("_model", "_vae"):
+            module = getattr(self._pipe, name, None)
+            if module is not None and target is not None and (name == "_model" or target == "cpu"):
+                module.to(target)  # the VAE always rests in RAM; it is small and only used briefly
+        free_cuda_cache()
 
     def load(self, progress: ProgressFn) -> None:
         if self._pipe is not None:
@@ -108,7 +157,7 @@ class YuE2Engine:
         if pipe is not None:
             pipe.close()  # drops model/VAE and empties the CUDA cache
             del pipe
-            gc.collect()
+            free_cuda_cache()
 
     def generate(self, request: CompiledRequest, out_dir: Path, *,
                  progress: ProgressFn, cancelled: CancelledFn) -> EngineResult:
@@ -135,3 +184,13 @@ class YuE2Engine:
             duration_s=float(result["audio_seconds"]), truncated=bool(result["truncated"]),
             score_abc=score.read_text(encoding="utf-8") if score.exists() else None,
             extra={"timing": result.get("timing"), "weights": result.get("weights")})
+
+
+def _cuda_total_gib() -> float | None:
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    return torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory / GIB

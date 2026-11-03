@@ -19,6 +19,10 @@
     <span id="gpu-label"></span>
     <div class="bar small"><div id="gpu-bar"></div></div>
   </div>
+  <div id="ram" class="gpu" hidden>
+    <span id="ram-label"></span>
+    <div class="bar small"><div id="ram-bar"></div></div>
+  </div>
   <div class="spacer"></div>
   <button type="button" id="engine-load" class="ghost" hidden>Modell laden</button>
   <button type="button" id="engine-unload" class="ghost" hidden>Entladen</button>
@@ -131,10 +135,8 @@
       </label>
       <label>VRAM-Modus
         <select name="vram_mode">
-          <option value="standard">Standard (24 GB, schnellste Qualität)</option>
-          <option value="fp8">FP8 (weniger VRAM, ab RTX 40xx)</option>
-          <option value="low">Low-VRAM (langsam, lagert aus)</option>
-          <option value="fp8-low">FP8 + Low-VRAM (minimal)</option>
+          <option value="standard">Standard (BF16, beste Qualität)</option>
+          <option value="fp8">FP8 (weniger VRAM, ab RTX 40xx, experimentell)</option>
         </select>
       </label>
       <label>Backend
@@ -149,8 +151,32 @@
           <option value="auto">auto</option><option value="cuda">cuda</option><option value="cpu">cpu</option>
         </select>
       </label>
-      <label>Speicherbudget (GiB) <input name="memory_budget_gib" type="number" min="4" max="1024" step="1"></label>
     </div>
+    <fieldset class="memory">
+      <legend>Speicher &amp; Offload</legend>
+      <label class="check"><input type="checkbox" name="offload"> <span><strong>Offload aktivieren</strong> –
+        lagert den gerade nicht benötigten Modellteil in den Arbeitsspeicher aus und dekodiert in kleineren Stücken.
+        Weniger VRAM, dafür langsamer und mehr RAM.</span></label>
+      <div class="grid">
+        <label>Modell zwischen Songs
+          <select name="idle_placement">
+            <option value="ram">im Arbeitsspeicher (Standard, VRAM frei)</option>
+            <option value="gpu">im VRAM (schnellster Start, VRAM bleibt belegt)</option>
+            <option value="unload">entladen (spart RAM, jeder Song lädt neu)</option>
+          </select>
+        </label>
+        <label>VRAM-Reserve für Desktop/andere Programme (GB)
+          <input name="vram_reserve_gib" type="number" min="0" max="64" step="0.5">
+        </label>
+        <label>RAM-Notbremse unter … GB freiem RAM (0 = aus)
+          <input name="ram_guard_gib" type="number" min="0" max="64" step="0.5">
+        </label>
+      </div>
+      <p class="hint">Die RAM-Notbremse prüft vor jedem Song den freien Arbeitsspeicher. Fällt er während der Generierung unter die Grenze,
+        bricht sie ab und entlädt das Modell, bevor das System einfriert.
+        Treibt die Grafikkarte auch den Bildschirm, sollte die VRAM-Reserve 2–4 GB betragen.</p>
+      <p id="memory-now" class="hint"></p>
+    </fieldset>
     <details>
       <summary>Modelle</summary>
       <div class="grid">
@@ -159,6 +185,7 @@
           <input name="vae" list="vae-choices">
           <datalist id="vae-choices"></datalist>
         </label>
+        <label>Speicherbudget (GiB, Obergrenze) <input name="memory_budget_gib" type="number" min="4" max="1024" step="1"></label>
       </div>
       <p class="hint">YuE2-Vae ist der Standard zum Hören, YuE2-Vae-legacy der Decoder der offiziellen Benchmarks.</p>
     </details>

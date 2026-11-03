@@ -30,6 +30,12 @@ class MockEngine:
     def unload(self) -> None:
         pass
 
+    def after_job(self, placement: str) -> None:
+        pass
+
+    def ram_needed_gib(self) -> float:
+        return 0.0
+
     def _stage(self, name: str, steps: int, share: float, progress: ProgressFn, cancelled: CancelledFn,
                *, unknown_total: bool = False, step_size: int = 1) -> None:
         for i in range(steps):

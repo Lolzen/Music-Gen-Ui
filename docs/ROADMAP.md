@@ -40,7 +40,10 @@ Stufe 3 ist die günstigste echte Garantie. Stufe 4 ist ohnehin für „eigene S
 - [x] Einstellungen in der UI (Engine, VRAM-Modus, Backend, Modell/VAE), gespeichert in `data/settings.json`
 - [x] Modell laden/entladen, Status mit Download-Fortschritt, VRAM-Anzeige
 - [x] Fortschritt in echten Einheiten (Tokens ≈ Sekunden Musik), Hinweis bei VRAM voll
-- [ ] Erster Lauf mit YuE2 auf der RTX 4090, Adapter anpassen; Laufzeit und VRAM-Spitzen messen ← **läuft gerade**
+- [x] Erster Lauf mit YuE2 auf der RTX 4090 (Song funktioniert; danach System-OOM)
+- [x] YuE2-Versionserkennung (Release vs. main)
+- [x] Speicher-Schutz: Offload (optional), Modell-Platz zwischen Songs, VRAM-Reserve, RAM-Notbremse, Aufräumen nach OOM
+- [ ] Laufzeit und Speicher-Spitzen pro Phase auf der 4090 messen, Standardwerte nachjustieren
 - [ ] Export: FLAC/WAV/MP3, Lautheit normalisieren
 
 ## Phase 2 – LoRA laden

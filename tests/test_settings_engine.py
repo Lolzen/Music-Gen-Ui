@@ -123,7 +123,8 @@ class FakePipelineMain(_FakeBase):
                  backend="torch", generation_config=None, verify_hashes=True,
                  vae_core_frames=None, quantization="none", offload_ar=False, low_vram=False, progress=True):
         self._record(dict(model=model_dir, device=device, memory_budget_gib=memory_budget_gib, backend=backend,
-                          quantization=quantization, offload_ar=offload_ar, low_vram=low_vram, progress=progress))
+                          quantization=quantization, offload_ar=offload_ar, low_vram=low_vram, progress=progress,
+                          vae_core_frames=vae_core_frames))
 
     def __call__(self, style=None, lyrics=None, *, tags=None, abc_sampling=None,
                  semantic_sampling=None, cancelled=None, on_token=None, on_progress=None, **kwargs):
@@ -138,7 +139,8 @@ class FakePipelineRelease(_FakeBase):
                  backend="torch", generation_config=None, verify_hashes=True,
                  vae_core_frames=None, quantization="none", offload_ar=False, progress=True):
         self._record(dict(model=model_dir, device=device, memory_budget_gib=memory_budget_gib, backend=backend,
-                          quantization=quantization, offload_ar=offload_ar, progress=progress))
+                          quantization=quantization, offload_ar=offload_ar, progress=progress,
+                          vae_core_frames=vae_core_frames))
 
     def __call__(self, style=None, lyrics=None, *, tags=None, abc_sampling=None,
                  semantic_sampling=None, cancelled=None, on_token=None, **kwargs):
@@ -168,7 +170,7 @@ def fake_yue2(monkeypatch):
 
 def test_yue2_engine_contract(fake_yue2, tmp_path):
     from musicgen_ui.engine.yue2 import YuE2Engine
-    settings = Settings(engine="yue2", quantization="fp8", low_vram=True, memory_budget_gib=22)
+    settings = Settings(engine="yue2", quantization="fp8", offload=True, memory_budget_gib=22)
     engine = YuE2Engine(settings)
     spec = SongSpec(style="pop", lyrics="[Verse]\nhi", seed=3, cfg_scale=1.5, audio_sampling={"temperature": 1.1})
     events = []
@@ -211,12 +213,12 @@ def test_yue2_release_api_compat(monkeypatch, tmp_path):
     """yue2-v0.1.6 release: low_vram → offload_ar, no on_progress (the reported TypeError)."""
     install_fake(monkeypatch, FakePipelineRelease)
     from musicgen_ui.engine.yue2 import YuE2Engine
-    engine = YuE2Engine(Settings(engine="yue2", low_vram=True))
+    engine = YuE2Engine(Settings(engine="yue2", offload=True))
     events = []
     result = engine.generate(compile_spec(SongSpec(lyrics="[Verse]\nhi", seed=1)), tmp_path / "out",
                              progress=lambda *e: events.append(e), cancelled=lambda: False)
     pipe = _FakeBase.instances[0]
-    assert pipe.init_kwargs["offload_ar"] is True
+    assert pipe.init_kwargs["offload_ar"] is True and pipe.init_kwargs["vae_core_frames"] == 512
     assert "on_progress" not in pipe.calls[0]
     assert ("audio", 50, 0) in events and result.duration_s == 12.5
     info = engine.info()
@@ -226,8 +228,9 @@ def test_yue2_release_api_compat(monkeypatch, tmp_path):
 def test_yue2_main_api_uses_low_vram(monkeypatch, tmp_path):
     install_fake(monkeypatch, FakePipelineMain)
     from musicgen_ui.engine.yue2 import YuE2Engine
-    engine = YuE2Engine(Settings(engine="yue2", low_vram=True))
+    engine = YuE2Engine(Settings(engine="yue2", offload=True))
     engine.load(lambda *e: None)
     pipe = _FakeBase.instances[0]
     assert pipe.init_kwargs["low_vram"] is True and pipe.init_kwargs["offload_ar"] is False
+    assert pipe.init_kwargs["vae_core_frames"] == 512
     assert engine.info()["low_vram_mode"] == "low_vram"

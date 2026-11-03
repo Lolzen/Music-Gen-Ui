@@ -247,7 +247,7 @@ function renderEngine(e) {
   if (e.engine === "mock") {
     label.textContent = "Mock-Engine · Platzhalter-Audio";
   } else {
-    const mode = [e.info.quantization === "fp8" ? "FP8" : null, { low_vram: "Low-VRAM", offload_ar: "Low-VRAM via AR-Auslagerung", unsupported: "Low-VRAM nicht verfügbar" }[e.info.low_vram_mode] || null,
+    const mode = [e.info.quantization === "fp8" ? "FP8" : null, { low_vram: "Offload", offload_ar: "Offload (AR-Auslagerung)", unsupported: "Offload nicht verfügbar" }[e.info.low_vram_mode] || null,
       e.info.backend !== "torch" ? e.info.backend : null].filter(Boolean).join(", ");
     const extra = e.state === "loading" ? ` · ${progressText(e.progress) || "…"}` : "";
     label.textContent = `YuE2${mode ? ` (${mode})` : ""} · ${STATE[e.state] || e.state}${extra}`;
@@ -283,7 +283,19 @@ function renderGpu(gpu) {
   $("#gpu-bar").style.width = `${Math.round((100 * gpu.used_gib) / gpu.total_gib)}%`;
 }
 
+function renderRam(ram) {
+  const box = $("#ram");
+  box.hidden = !ram;
+  if (!ram) return;
+  const swap = ram.swap_used_gib > 0.5 ? ` · Swap ${ram.swap_used_gib.toFixed(1)}` : "";
+  $("#ram-label").textContent = `RAM ${ram.used_gib.toFixed(1)} / ${ram.total_gib.toFixed(0)} GB${swap}`;
+  const pct = Math.round((100 * ram.used_gib) / ram.total_gib);
+  $("#ram-bar").style.width = `${pct}%`;
+  $("#ram-bar").classList.toggle("danger", pct >= 90);
+}
+
 let statusTimer = null;
+let lastStatus = null;
 async function refreshStatus() {
   clearTimeout(statusTimer);
   let delay = 4000;
@@ -291,6 +303,8 @@ async function refreshStatus() {
     const s = await api("/api/status");
     renderEngine(s.engine);
     renderGpu(s.gpu);
+    renderRam(s.ram);
+    lastStatus = s;
     if (s.engine.state === "loading" || s.engine.state === "busy") delay = 1000;
   } catch { /* server restarting */ }
   statusTimer = setTimeout(refreshStatus, delay);
@@ -310,9 +324,14 @@ async function engineAction(path) {
 async function openSettings() {
   const { values, choices } = await api("/api/settings");
   const f = $("#settings-form").elements;
-  for (const key of ["engine", "backend", "device", "memory_budget_gib", "model", "vae"]) f[key].value = values[key];
-  f.vram_mode.value = (values.quantization === "fp8" ? "fp8" : "") + (values.low_vram ? (values.quantization === "fp8" ? "-low" : "low") : "")
-    || "standard";
+  for (const key of ["engine", "backend", "device", "memory_budget_gib", "model", "vae",
+    "idle_placement", "vram_reserve_gib", "ram_guard_gib"]) f[key].value = values[key];
+  f.vram_mode.value = values.quantization === "fp8" ? "fp8" : "standard";
+  f.offload.checked = values.offload;
+  const parts = [];
+  if (lastStatus?.gpu?.cuda) parts.push(`VRAM: ${lastStatus.gpu.used_gib.toFixed(1)} von ${lastStatus.gpu.total_gib.toFixed(0)} GB belegt`);
+  if (lastStatus?.ram) parts.push(`RAM: ${lastStatus.ram.available_gib.toFixed(1)} von ${lastStatus.ram.total_gib.toFixed(0)} GB frei`);
+  $("#memory-now").textContent = parts.length ? `Aktuell – ${parts.join(" · ")}` : "";
   $("#vae-choices").innerHTML = choices.vae.map((v) => `<option value="${v}">`).join("");
   $("#settings-error").textContent = "";
   $("#settings-dialog").showModal();
@@ -324,8 +343,9 @@ async function saveSettings() {
   const values = {
     engine: f.engine.value, backend: f.backend.value, device: f.device.value,
     memory_budget_gib: Number(f.memory_budget_gib.value), model: f.model.value, vae: f.vae.value,
-    quantization: mode.startsWith("fp8") ? "fp8" : "none",
-    low_vram: mode === "low" || mode === "fp8-low",
+    quantization: mode === "fp8" ? "fp8" : "none",
+    offload: f.offload.checked, idle_placement: f.idle_placement.value,
+    vram_reserve_gib: Number(f.vram_reserve_gib.value), ram_guard_gib: Number(f.ram_guard_gib.value),
   };
   try {
     const res = await api("/api/settings", { method: "PUT", body: JSON.stringify(values) });
