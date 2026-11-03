@@ -317,6 +317,7 @@ Umgebungsvariablen überschreiben die gespeicherten Einstellungen. Das ist prakt
 | System friert ein, obwohl RAM/VRAM laut Protokoll frei sind (oft beim Wechsel zu `nar`) | Wahrscheinlich Grafikkarte/Treiber statt Speicher, siehe [Absturz ohne vollen Speicher](#absturz-ohne-vollen-speicher) |
 | `yue2 doctor` meldet Fehler | Treiber/CUDA-Version prüfen (`nvidia-smi`), notfalls `./install.sh --cuda cu126` |
 | Port belegt | `./start.sh --port 7861` |
+| `install.sh`: viele `Retrying … Failed to resolve 'pypi.ngc.nvidia.com'` | Eine nicht erreichbare Paketquelle steht in deiner globalen pip-Konfiguration. `install.sh` erkennt das inzwischen und ignoriert sie für die Installation. Dauerhaft entfernen: `python -m pip config debug` zeigt die Datei, dann `python -m pip config unset global.extra-index-url` (bzw. `user.`/`site.`), oder `PIP_EXTRA_INDEX_URL` aus der Shell-Konfiguration löschen |
 | `unexpected keyword argument 'low_vram'` o.ä. | Behoben: Die App erkennt jetzt die installierte YuE2-Version (siehe unten) |
 | Erster Song dauert lange | Beim ersten Mal werden mehrere GB heruntergeladen und geprüft. Der Fortschritt steht oben rechts |
 

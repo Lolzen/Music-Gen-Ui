@@ -64,12 +64,36 @@ fi
 set +u  # conda activation scripts may use unset variables
 conda activate "$ENV_NAME"
 set -u
-python -m pip install --upgrade pip
+# --- pip-Paketquellen prüfen ------------------------------------------------------
+# Eine global eingetragene, nicht erreichbare Quelle (z.B. pypi.ngc.nvidia.com) bremst
+# jede Installation mit 5 Wiederholungen pro Paket aus. Dann ignorieren wir für diesen
+# Lauf die globale pip-Konfiguration (--isolated); PyPI und der PyTorch-Index reichen.
+PIP=(python -m pip)
+check_pip_sources() {
+  local urls host bad=""
+  urls="$( { python -m pip config list 2>/dev/null; printf '%s\n' "${PIP_INDEX_URL:-}" "${PIP_EXTRA_INDEX_URL:-}"; } \
+           | { grep -Eo "https?://[^' \"]+" || true; } | sort -u)"  # no URLs configured is fine
+  for url in $urls; do
+    host="$(printf '%s' "$url" | sed -E 's#https?://([^/:@]+@)?([^/:]+).*#\2#')"
+    python -c 'import socket, sys; socket.getaddrinfo(sys.argv[1], 443)' "$host" 2>/dev/null || bad="$bad $host"
+  done
+  if [[ -n "$bad" ]]; then
+    echo "Hinweis: In deiner pip-Konfiguration ist eine nicht erreichbare Paketquelle eingetragen:$bad" >&2
+    echo "         Für diese Installation wird die globale pip-Konfiguration ignoriert (pip --isolated)." >&2
+    echo "         Dauerhaft entfernen: 'python -m pip config debug' zeigt die Datei," >&2
+    echo "         dann z.B. 'python -m pip config unset global.extra-index-url' (oder PIP_EXTRA_INDEX_URL)." >&2
+    PIP=(python -m pip --isolated)
+    unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL
+  fi
+}
+check_pip_sources
+
+"${PIP[@]}" install --upgrade pip
 
 # --- Pakete -------------------------------------------------------------------
 if [[ "$MOCK" == 1 ]]; then
   step "Installiere Oberfläche (ohne YuE2)"
-  python -m pip install -e ".[lua]"
+  "${PIP[@]}" install -e ".[lua]"
 else
   if command -v nvidia-smi >/dev/null 2>&1; then
     step "GPU"
@@ -78,16 +102,16 @@ else
     echo "Hinweis: nvidia-smi nicht gefunden – ist der NVIDIA-Treiber installiert?" >&2
   fi
   step "Installiere PyTorch + torchaudio $TORCH_VERSION ($CUDA)"
-  python -m pip install "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" --index-url "https://download.pytorch.org/whl/$CUDA"
+  "${PIP[@]}" install "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" --index-url "https://download.pytorch.org/whl/$CUDA"
   EXTRAS="yue2,lua,train"
   [[ "$FAST" == 1 ]] && EXTRAS="$EXTRAS,fast"
   step "Installiere Music-Gen-UI + YuE2 ($EXTRAS)"
-  python -m pip install -e ".[$EXTRAS]"
+  "${PIP[@]}" install -e ".[$EXTRAS]"
   # Always pin YuE2 explicitly: release and main share the version number 0.1.6,
   # so pip would otherwise keep whichever variant is already installed.
   step "Installiere YuE2-Version '$YUE2_REF'"
-  python -m pip install --force-reinstall --no-deps "yue2-infer @ git+$YUE2_REPO@$YUE2_REF"
-  python -m pip check || echo "Hinweis: Abhängigkeiten passen evtl. nicht exakt zu '$YUE2_REF' (siehe oben)." >&2
+  "${PIP[@]}" install --force-reinstall --no-deps "yue2-infer @ git+$YUE2_REPO@$YUE2_REF"
+  "${PIP[@]}" check || echo "Hinweis: Abhängigkeiten passen evtl. nicht exakt zu '$YUE2_REF' (siehe oben)." >&2
   step "YuE2-Umgebungscheck (yue2 doctor)"
   yue2 doctor || echo "Hinweis: 'yue2 doctor' meldet Probleme (siehe oben) – die UI startet trotzdem." >&2
 fi
