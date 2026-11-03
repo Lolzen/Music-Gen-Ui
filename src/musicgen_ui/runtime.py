@@ -15,7 +15,8 @@ from pathlib import Path
 from .config import Settings, vllm_installed, yue2_installed
 from .engine import Cancelled, Engine, EngineResult, create_engine
 from .engine.base import CancelledFn, ProgressFn
-from .memory import InsufficientMemory, MemoryLog, RamGuard, available_gib, is_oom
+from .memory import InsufficientMemory, MemoryLog, RamGuard, available_gib, is_oom, read_peaks, reset_peaks
+from .predict import ProfileStore, profile_key
 from .prompting import CompiledRequest
 
 log = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class EngineManager:
         self._message: str | None = None
         self._progress = {"stage": None, "done": 0, "total": 0}
         self._since = time.time()
+        self.profiles = ProfileStore(settings.data_dir / "stats" / "memory-profiles.json")
 
     # -- status --------------------------------------------------------------
     def _set(self, state: str, message: str | None = None) -> None:
@@ -159,6 +161,7 @@ class EngineManager:
             self._set("busy")
             guard = RamGuard(s.ram_guard_gib)
             try:
+                reset_peaks()
                 with guard:
                     try:
                         result = self.engine.generate(request, out_dir, progress=tracked,
@@ -168,7 +171,11 @@ class EngineManager:
                             raise InsufficientMemory(guard.message) from None
                         raise
                 mlog.stage = "fertig"
-                mlog.event(f"Song fertig ({result.duration_s:.0f} s Musik)")
+                peaks = read_peaks()
+                mlog.event(f"Song fertig ({result.duration_s:.0f} s Musik), Spitzen: "
+                           + ", ".join(f"{k}={v} GB" for k, v in peaks.items()))
+                if self.engine.name == "yue2":
+                    self.profiles.record(profile_key(s), peaks, result.duration_s)
                 return result
             except Exception as exc:
                 mlog.event(f"ABBRUCH: {type(exc).__name__}: {exc}")

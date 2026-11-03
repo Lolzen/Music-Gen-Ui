@@ -64,6 +64,7 @@ Danach http://127.0.0.1:7860 öffnen. `start.sh` aktiviert die Conda-Umgebung se
 | `--preload` | Modell direkt beim Start laden statt beim ersten Song |
 | `--fp8` / `--offload` | FP8 bzw. Offload für diesen Start (siehe [Speicher & Offload](#speicher--offload)) |
 | `--engine mock` | Testmodus ohne Modell |
+| `--access-log` | alle HTTP-Anfragen im Terminal anzeigen; standardmäßig werden die regelmäßigen Status-Abfragen der Oberfläche ausgeblendet |
 
 Andere Umgebung verwenden: `MGU_CONDA_ENV=meine-env ./start.sh`
 
@@ -91,7 +92,13 @@ music-gen-ui
 ## Bedienung
 
 **Oben rechts** steht der Modellstatus: *nicht geladen* → *lädt* (mit Download-Fortschritt beim ersten Mal) → *bereit* → *generiert*.
-Daneben zeigen zwei Leisten, wie viel Grafikspeicher (VRAM) und Arbeitsspeicher (RAM) belegt sind; die RAM-Leiste wird ab 90 % rot. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
+Daneben zeigen zwei Leisten den Grafikspeicher (**VRAM**) und den Arbeitsspeicher (**RAM**):
+
+- **Volle Füllung (lila):** aktuell belegt (alle Programme)
+- **Transparente Füllung (orange, gestrichelte Kante):** **Prognose** für den Spitzenwert während eines Songs mit dem gewählten Modell und den aktuellen Einstellungen. Sie passt sich sofort an, wenn du Modell, GGUF-Modus, FP8, Offload, Stil-Treue oder Plan-Modus änderst.
+- **Senkrechter Strich (VRAM):** Grenze für YuE2 (Gesamt-VRAM minus VRAM-Reserve). Liegt die Prognose darüber, wird sie rot und warnt.
+- „geschätzt“: berechnet aus Modellgröße, KV-Cache, CUDA-Graphs, Klangsynthese und Decoder. Nach dem ersten echten Song mit derselben Konfiguration steht dort **„gemessen“** mit den tatsächlichen Spitzenwerten (gespeichert in `data/stats/`). Details zeigt der Tooltip.
+- Im Einstellungsdialog zeigt dieselbe Anzeige die Prognose für die **noch nicht gespeicherten** Werte. **Modell laden** lädt das Modell vorab, **Entladen** gibt den Grafikspeicher frei, z.B. für eine andere WebUI.
 
 **⚙ Einstellungen** (werden in `data/settings.json` gespeichert):
 

@@ -207,6 +207,8 @@ def test_yue2_end_to_end_through_api(fake_yue2, tmp_path):
         assert job["status"] == "done" and job["result"]["duration_s"] == 12.5
         assert c.get("/api/status").json()["engine"]["state"] == "ready"
         assert c.post("/api/engine/unload").json()["state"] == "unloaded"
+        profiles = json.loads((tmp_path / "stats" / "memory-profiles.json").read_text())
+        assert any(v.get("ram_peak_gib") for v in profiles.values())  # peak measured and stored
         assert _FakeBase.instances[0].closed
 
 

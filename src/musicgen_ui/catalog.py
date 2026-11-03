@@ -69,6 +69,18 @@ _GGUF_SCALARS = {0: "<B", 1: "<b", 2: "<H", 3: "<h", 4: "<I", 5: "<i", 6: "<f", 
 
 def read_gguf_metadata(path: Path, max_array_items: int = 16) -> dict:
     """Read the key/value header of a GGUF file (no tensors, no dependencies)."""
+    return _read_gguf_header(path, max_array_items, with_tensors=False)[0]
+
+
+def read_gguf_tensors(path: Path) -> list[dict]:
+    """Tensor directory of a GGUF file: name, element count and stored bytes per tensor.
+
+    Byte sizes come from the gaps between tensor offsets, so this works for every
+    quantization type, including ones this reader does not know."""
+    return _read_gguf_header(path, 0, with_tensors=True)[1]
+
+
+def _read_gguf_header(path: Path, max_array_items: int, with_tensors: bool) -> tuple[dict, list[dict]]:
     with open(path, "rb") as fh:
         if fh.read(4) != b"GGUF":
             raise ValueError("keine GGUF-Datei")
@@ -106,7 +118,25 @@ def read_gguf_metadata(path: Path, max_array_items: int = 16) -> dict:
             key = read_string()
             (vtype,) = struct.unpack("<I", fh.read(4))
             meta[key] = read_value(vtype)
-        return meta
+        if not with_tensors:
+            return meta, []
+        infos = []
+        for _ in range(tensor_count):
+            name = read_string()
+            (n_dims,) = struct.unpack("<I", fh.read(4))
+            dims = struct.unpack(f"<{n_dims}Q", fh.read(8 * n_dims))
+            qtype, offset = struct.unpack("<IQ", fh.read(12))
+            elements = 1
+            for d in dims:
+                elements *= d
+            infos.append({"name": name, "elements": elements, "type": qtype, "offset": offset})
+        alignment = int(meta.get("general.alignment", 32)) or 32
+        data_start = -(-fh.tell() // alignment) * alignment
+        end = Path(path).stat().st_size - data_start
+    ordered = sorted(infos, key=lambda t: t["offset"])
+    for current, following in zip(ordered, ordered[1:] + [None]):
+        current["bytes"] = (following["offset"] if following else end) - current["offset"]
+    return meta, infos
 
 
 def _quant_from(meta: dict, name: str) -> str | None:

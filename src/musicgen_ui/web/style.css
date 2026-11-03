@@ -98,3 +98,23 @@ fieldset.memory label.check input { margin-top: 0.25rem; }
 .modelbar label { flex-direction: row; align-items: center; gap: 0.4rem; color: var(--text); font-size: 0.9rem; }
 .modelbar select { min-width: 16rem; max-width: 34rem; }
 .modelbar #model-note { flex-basis: 100%; }
+
+/* --- memory widget: current fill (solid) + prediction (transparent overlay) --- */
+:root { --pred: #e08a00; --pred-bg: rgba(224, 138, 0, 0.28); }
+@media (prefers-color-scheme: dark) { :root { --pred: #ffb347; --pred-bg: rgba(255, 179, 71, 0.30); } }
+.memwidget { display: grid; gap: 0.2rem; font-size: 0.78rem; color: var(--muted); min-width: 22rem; }
+.memwidget.wide { min-width: 0; margin: 0.4rem 0; }
+.memrow { display: grid; grid-template-columns: 2.6rem 8rem 1fr; align-items: center; gap: 0.5rem; }
+.memwidget.wide .memrow { grid-template-columns: 2.6rem minmax(8rem, 1fr) auto; }
+.memlabel { font-weight: 600; color: var(--text); }
+.membar { position: relative; height: 8px; border-radius: 4px; background: var(--chip); overflow: hidden; }
+.membar .fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 4px; transition: width 0.4s; }
+.membar .pred { position: absolute; inset: 0 auto 0 0; background: var(--pred-bg);
+  border-right: 2px dashed var(--pred); border-radius: 4px; transition: width 0.4s; }
+.membar.over .pred { background: rgba(179, 38, 30, 0.30); border-right-color: var(--error); }
+.membar.over { box-shadow: 0 0 0 1px var(--error); }
+.memtext .predtext { color: var(--pred); }
+.membar.over + .memtext .predtext { color: var(--error); font-weight: 600; }
+.memprognose { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed var(--line); }
+@media (max-width: 900px) { .memwidget { min-width: 0; width: 100%; } }
+.membar .cap { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); opacity: 0.55; }

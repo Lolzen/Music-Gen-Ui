@@ -16,7 +16,8 @@ from .models import YUE2_DEFAULTS, SongSpec
 from .plugins import PluginManager
 from .prompting import KNOWN_SECTIONS
 from .runtime import Busy, EngineManager
-from .memory import latest_log, ram_status
+from . import predict as predict_mod
+from .memory import latest_log, process_rss_gib, process_vram_gib, ram_status
 from .system import gpu_status
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -66,6 +67,8 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
     def status():
         running = queue.running
         return {"engine": manager.status(), "gpu": gpu_status(), "ram": ram_status(),
+                "process": {"rss_gib": process_rss_gib(), "vram_gib": process_vram_gib(),
+                            "cuda_active": manager.engine.loaded and manager.engine.name == "yue2"},
                 "running_job": running.id if running else None}
 
     @app.get("/api/settings")
@@ -85,6 +88,25 @@ def create_app(settings: Settings | None = None, *, engine=None) -> FastAPI:
         return {**catalog.scan(settings.models_dir),
                 "selected": {"checkpoint": settings.model, "vae": settings.vae},
                 "gguf_mode": settings.gguf_mode}
+
+    @app.post("/api/predict")
+    def predict_memory(body: dict = Body(default={})):
+        """Memory prediction for the current settings, optionally with unsaved UI values."""
+        try:
+            candidate = predict_mod.with_overrides(settings, body.get("settings"))
+            result = predict_mod.predict(candidate, body.get("spec") or {},
+                                         manager.profiles.get(predict_mod.profile_key(candidate)))
+        except (ValueError, OSError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        result["engine"] = candidate.resolved_engine()
+        gpu = gpu_status()
+        result["system"] = predict_mod.system_view(
+            result, gpu, ram_status(), process_rss_gib(), process_vram_gib(),
+            cuda_active=manager.engine.loaded and manager.engine.name == "yue2")
+        if gpu.get("cuda"):  # YuE2 caps PyTorch at min(budget − 2, total − reserve)
+            result["vram"]["cap_gib"] = round(min(candidate.memory_budget_gib - 2,
+                                                  gpu["total_gib"] - max(candidate.vram_reserve_gib, 2.0)), 2)
+        return result
 
     @app.get("/api/logs/memory")
     def memory_log():

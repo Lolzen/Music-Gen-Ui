@@ -185,3 +185,54 @@ def latest_log(directory: Path, lines: int = 300) -> tuple[str | None, str]:
         return None, ""
     text = files[-1].read_text(encoding="utf-8", errors="replace").splitlines()
     return files[-1].name, "\n".join(text[-lines:])
+
+
+# ---------------------------------------------------------------- per-process peaks
+def _status_kib(field: str) -> int | None:
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith(field + ":"):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def process_rss_gib() -> float | None:
+    kib = _status_kib("VmRSS")
+    return None if kib is None else kib / 2**20
+
+
+def _torch_cuda():
+    import sys
+    torch = sys.modules.get("torch")  # never import torch just for statistics
+    if torch is None or not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return None
+    return torch
+
+
+def reset_peaks() -> None:
+    """Start a new measurement window for peak RSS and peak PyTorch VRAM."""
+    try:
+        Path("/proc/self/clear_refs").write_text("5")  # resets VmHWM (Linux)
+    except OSError:
+        pass
+    torch = _torch_cuda()
+    if torch is not None:
+        torch.cuda.reset_peak_memory_stats()
+
+
+def read_peaks() -> dict:
+    peaks = {}
+    hwm = _status_kib("VmHWM")
+    if hwm is not None:
+        peaks["ram_peak_gib"] = round(hwm / 2**20, 2)
+    torch = _torch_cuda()
+    if torch is not None:
+        peaks["vram_peak_gib"] = round(torch.cuda.max_memory_reserved() / GIB, 2)
+    return peaks
+
+
+def process_vram_gib() -> float:
+    torch = _torch_cuda()
+    return 0.0 if torch is None else torch.cuda.memory_reserved() / GIB

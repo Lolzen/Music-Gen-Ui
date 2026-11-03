@@ -120,6 +120,7 @@ function updateOutputs() {
 // ---------------------------------------------------------------- preview
 let previewTimer = null;
 function schedulePreview() {
+  schedulePrediction();
   clearTimeout(previewTimer);
   previewTimer = setTimeout(preview, 300);
 }
@@ -276,23 +277,124 @@ function renderEngine(e) {
   }
 }
 
-function renderGpu(gpu) {
-  const box = $("#gpu");
-  box.hidden = !gpu || !gpu.cuda;
-  if (box.hidden) return;
-  $("#gpu-label").textContent = `${gpu.name} · ${gpu.used_gib.toFixed(1)} / ${gpu.total_gib.toFixed(0)} GB`;
-  $("#gpu-bar").style.width = `${Math.round((100 * gpu.used_gib) / gpu.total_gib)}%`;
+// ---------------------------------------------------------------- memory widget + prediction
+let prediction = null;          // prediction for the saved settings (header)
+let lastEngineState = null;
+
+function memRow(container, key, label) {
+  let row = container.querySelector(`[data-key="${key}"]`);
+  if (!row) {
+    row = $("#memrow-template").content.firstElementChild.cloneNode(true);
+    row.dataset.key = key;
+    $(".memlabel", row).textContent = label;
+    container.append(row);
+  }
+  return row;
 }
 
-function renderRam(ram) {
-  const box = $("#ram");
-  box.hidden = !ram;
-  if (!ram) return;
-  const swap = ram.swap_used_gib > 0.5 ? ` · Swap ${ram.swap_used_gib.toFixed(1)}` : "";
-  $("#ram-label").textContent = `RAM ${ram.used_gib.toFixed(1)} / ${ram.total_gib.toFixed(0)} GB${swap}`;
-  const pct = Math.round((100 * ram.used_gib) / ram.total_gib);
-  $("#ram-bar").style.width = `${pct}%`;
-  $("#ram-bar").classList.toggle("danger", pct >= 90);
+function predictionTitle(pred, kind) {
+  if (!pred) return "";
+  const a = pred.assumptions;
+  const lines = [`Prognose (${pred[kind].basis}) für einen Song bis ${Math.round(a.song_seconds / 60)} min`,
+    `Modellgewichte: ${pred.weights_gib} GB${pred.file_gib ? ` (Datei ${pred.file_gib} GB)` : ""}`];
+  if (kind === "vram") {
+    for (const [phase, gib] of Object.entries(pred.vram.phases)) lines.push(`  ${phase}: ~${gib} GB`);
+    lines.push(`CUDA-Graphs: ${a.cuda_graphs ? "ja" : "nein"}, FP8: ${a.fp8 ? "ja" : "nein"}, Offload: ${a.offload ? "ja" : "nein"}`);
+  } else {
+    lines.push(`Zwischen Songs: ~${pred.ram.idle_gib} GB für Music-Gen-UI`);
+  }
+  if (pred[kind].estimate_gib) lines.push(`(Schätzung wäre ${pred[kind].estimate_gib} GB)`);
+  if (pred.measured_song_seconds) lines.push(`Gemessen am längsten bisherigen Song: ${Math.round(pred.measured_song_seconds)} s`);
+  return lines.join("\n");
+}
+
+function drawMemory(container, status, pred) {
+  if (!status) return;
+  const proc = status.process || {};
+  const rows = [];
+  if (status.gpu?.cuda) {
+    const ours = (proc.vram_gib || 0) + (proc.cuda_active ? 0.5 : 0);
+    const others = Math.max(status.gpu.used_gib - ours, 0);
+    const cap = pred?.vram.cap_gib;
+    rows.push(["vram", "VRAM", status.gpu.total_gib, status.gpu.used_gib,
+      pred ? others + pred.vram.peak_gib : null, 0.97,
+      cap ? { at: others + cap + 0.5, over: pred.vram.peak_gib > cap + 0.5 } : null]);
+  } else {
+    rows.push(["vram", "VRAM", null, null, pred ? pred.vram.peak_gib : null, 1]);
+  }
+  if (status.ram) {
+    rows.push(["ram", "RAM", status.ram.total_gib, status.ram.used_gib,
+      pred ? Math.max(status.ram.used_gib - (proc.rss_gib || 0), 0) + pred.ram.peak_gib : null, 0.95]);
+  }
+  for (const [key, label, total, used, predicted, limit, capInfo] of rows) {
+    const row = memRow(container, key, label);
+    const bar = $(".membar", row);
+    const text = $(".memtext", row);
+    const basis = pred ? pred[key].basis : "";
+    if (total === null) {  // no GPU visible (e.g. PyTorch not installed)
+      bar.hidden = true;
+      text.innerHTML = predicted !== null
+        ? `keine GPU erkannt · <span class="predtext">Bedarf ~${predicted.toFixed(1)} GB (${basis})</span>` : "keine GPU erkannt";
+    } else {
+      bar.hidden = false;
+      $(".fill", bar).style.width = `${Math.min(100, (100 * used) / total)}%`;
+      const pctPred = predicted === null ? 0 : Math.min(100, (100 * predicted) / total);
+      $(".pred", bar).style.width = `${pctPred}%`;
+      $(".pred", bar).hidden = predicted === null;
+      const over = predicted !== null && (predicted > total * limit || Boolean(capInfo?.over));
+      bar.classList.toggle("over", over);
+      let capLine = $(".cap", bar);
+      if (capInfo) {
+        if (!capLine) { capLine = document.createElement("div"); capLine.className = "cap"; bar.append(capLine); }
+        capLine.style.left = `${Math.min(100, (100 * capInfo.at) / total)}%`;
+        capLine.title = "Grenze für YuE2 (Gesamt-VRAM minus VRAM-Reserve)";
+      } else if (capLine) {
+        capLine.remove();
+      }
+      const why = capInfo?.over ? " – über der YuE2-Grenze (VRAM-Reserve/Offload/FP8 anpassen)" : "";
+      text.innerHTML = `${used.toFixed(1)} / ${total.toFixed(0)} GB` + (predicted === null ? "" :
+        ` · <span class="predtext">${over ? "⚠ " : ""}Prognose ~${predicted.toFixed(1)} GB (${basis})${why}</span>`);
+    }
+    row.title = predictionTitle(pred, key);
+  }
+}
+
+function hintsFromSpec() {
+  const spec = readSpec();
+  return { plan_mode: spec.plan_mode, cfg_scale: spec.cfg_scale, audio_max_tokens: spec.audio_sampling?.max_tokens };
+}
+
+let predictTimer = null;
+function schedulePrediction() {
+  clearTimeout(predictTimer);
+  predictTimer = setTimeout(fetchPrediction, 400);
+}
+
+async function fetchPrediction() {
+  try {
+    prediction = await api("/api/predict", { method: "POST", body: JSON.stringify({ spec: hintsFromSpec() }) });
+  } catch {
+    prediction = null;
+  }
+  drawMemory($("#memory"), lastStatus, prediction);
+}
+
+let dialogPredictTimer = null;
+function scheduleDialogPrediction() {
+  clearTimeout(dialogPredictTimer);
+  dialogPredictTimer = setTimeout(async () => {
+    const note = $("#memory-dialog-note");
+    try {
+      const pred = await api("/api/predict", { method: "POST",
+        body: JSON.stringify({ settings: dialogValues(), spec: hintsFromSpec() }) });
+      drawMemory($("#memory-dialog"), lastStatus, pred);
+      note.textContent = `Modellgewichte im Speicher: ${pred.weights_gib} GB` +
+        (pred.engine === "mock" ? " · Hinweis: Mock-Engine gewählt – die Prognose gilt für YuE2" : "") +
+        ". Transparente Füllung = erwarteter Spitzenwert während eines Songs.";
+    } catch (err) {
+      note.textContent = `Keine Prognose: ${err.message}`;
+    }
+  }, 250);
 }
 
 let statusTimer = null;
@@ -303,9 +405,10 @@ async function refreshStatus() {
   try {
     const s = await api("/api/status");
     renderEngine(s.engine);
-    renderGpu(s.gpu);
-    renderRam(s.ram);
     lastStatus = s;
+    drawMemory($("#memory"), s, prediction);
+    if (lastEngineState === "busy" && s.engine.state !== "busy") schedulePrediction();  // new measurement
+    lastEngineState = s.engine.state;
     if (s.engine.state === "loading" || s.engine.state === "busy") delay = 1000;
   } catch { /* server restarting */ }
   statusTimer = setTimeout(refreshStatus, delay);
@@ -329,31 +432,33 @@ async function openSettings() {
     "idle_placement", "vram_reserve_gib", "ram_guard_gib", "gguf_mode"]) f[key].value = values[key];
   f.vram_mode.value = values.quantization === "fp8" ? "fp8" : "standard";
   f.offload.checked = values.offload;
-  const parts = [];
-  if (lastStatus?.gpu?.cuda) parts.push(`VRAM: ${lastStatus.gpu.used_gib.toFixed(1)} von ${lastStatus.gpu.total_gib.toFixed(0)} GB belegt`);
-  if (lastStatus?.ram) parts.push(`RAM: ${lastStatus.ram.available_gib.toFixed(1)} von ${lastStatus.ram.total_gib.toFixed(0)} GB frei`);
-  $("#memory-now").textContent = parts.length ? `Aktuell – ${parts.join(" · ")}` : "";
+  scheduleDialogPrediction();
   $("#vae-choices").innerHTML = choices.vae.map((v) => `<option value="${v}">`).join("");
   $("#settings-error").textContent = "";
   $("#settings-dialog").showModal();
 }
 
-async function saveSettings() {
+function dialogValues() {
   const f = $("#settings-form").elements;
   const mode = f.vram_mode.value;
-  const values = {
+  return {
     engine: f.engine.value, backend: f.backend.value, device: f.device.value,
     memory_budget_gib: Number(f.memory_budget_gib.value), model: f.model.value, vae: f.vae.value,
     quantization: mode === "fp8" ? "fp8" : "none",
     offload: f.offload.checked, idle_placement: f.idle_placement.value, gguf_mode: f.gguf_mode.value,
     vram_reserve_gib: Number(f.vram_reserve_gib.value), ram_guard_gib: Number(f.ram_guard_gib.value),
   };
+}
+
+async function saveSettings() {
+  const values = dialogValues();
   try {
     const res = await api("/api/settings", { method: "PUT", body: JSON.stringify(values) });
     renderEngine(res.engine);
     $("#settings-dialog").close();
     refreshStatus();
     loadModels();
+    schedulePrediction();
   } catch (err) {
     $("#settings-error").textContent = err.message;
   }
@@ -363,6 +468,8 @@ function setupEngineControls() {
   $("#open-settings").addEventListener("click", openSettings);
   $("#engine-load").addEventListener("click", () => engineAction("/api/engine/load"));
   $("#engine-unload").addEventListener("click", () => engineAction("/api/engine/unload"));
+  $("#settings-form").addEventListener("input", scheduleDialogPrediction);
+  $("#settings-form").addEventListener("change", scheduleDialogPrediction);
   $("#settings-form").addEventListener("submit", (ev) => {
     if (ev.submitter && ev.submitter.value === "save") {
       ev.preventDefault();
@@ -452,6 +559,7 @@ async function pickModel(kind) {
     $("#banner").textContent = `Modell nicht gewechselt: ${err.message}`;
   }
   loadModels();
+  schedulePrediction();
 }
 
 // ---------------------------------------------------------------- init

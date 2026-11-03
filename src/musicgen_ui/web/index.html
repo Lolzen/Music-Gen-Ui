@@ -15,14 +15,7 @@
   <div id="engine-status" class="status">
     <span class="dot"></span><span id="engine-label">…</span>
   </div>
-  <div id="gpu" class="gpu" hidden>
-    <span id="gpu-label"></span>
-    <div class="bar small"><div id="gpu-bar"></div></div>
-  </div>
-  <div id="ram" class="gpu" hidden>
-    <span id="ram-label"></span>
-    <div class="bar small"><div id="ram-bar"></div></div>
-  </div>
+  <div id="memory" class="memwidget" aria-label="Speicher"></div>
   <div class="spacer"></div>
   <button type="button" id="engine-load" class="ghost" hidden>Modell laden</button>
   <button type="button" id="engine-unload" class="ghost" hidden>Entladen</button>
@@ -188,7 +181,11 @@
       <p class="hint">Die RAM-Notbremse prüft vor jedem Song den freien Arbeitsspeicher. Fällt er während der Generierung unter die Grenze,
         bricht sie ab und entlädt das Modell, bevor das System einfriert.
         Treibt die Grafikkarte auch den Bildschirm, sollte die VRAM-Reserve 2–4 GB betragen.</p>
-      <p id="memory-now" class="hint"></p>
+      <div class="memprognose">
+        <strong>Prognose für diese Einstellungen</strong>
+        <div id="memory-dialog" class="memwidget wide"></div>
+        <p id="memory-dialog-note" class="hint"></p>
+      </div>
       <p class="hint">Während jedes Songs wird alle 2 s ein <a href="/api/logs/memory" target="_blank" rel="noopener">Speicher-Protokoll</a>
         geschrieben (<code>data/logs/</code>). Es bleibt auch nach einem Absturz erhalten.</p>
     </fieldset>
@@ -219,6 +216,14 @@
   <pre id="score-text"></pre>
   <form method="dialog"><button>Schließen</button></form>
 </dialog>
+
+<template id="memrow-template">
+  <div class="memrow">
+    <span class="memlabel"></span>
+    <div class="membar"><div class="fill"></div><div class="pred"></div></div>
+    <span class="memtext"></span>
+  </div>
+</template>
 
 <template id="voice-template">
   <div class="voice row">
